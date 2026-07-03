@@ -1,0 +1,32 @@
+# PLACEHOLDER semantic definitions — illustrative only.
+#
+# These let the API run end to end (list metrics, compile SQL) before the real KRW
+# schema is available. Replace them with definitions derived from the actual Azure SQL
+# views before M2/M3 (docs O-2). Sources/columns below are invented, not real.
+
+metrics:
+  new_leads:
+    label: "New leads"
+    description: "Count of new intake leads in the period."
+    source: analytics.v_leads
+    expression: "count(*)"
+    synonyms: ["leads", "new intakes"]
+  marketing_spend:
+    label: "Marketing spend"
+    description: "Total marketing spend in the period."
+    source: analytics.v_leads
+    expression: "sum(spend)"
+    format: currency
+    synonyms: ["spend", "ad spend"]
+
+dimensions:
+  channel:
+    label: "Channel"
+    source: analytics.v_leads
+    column: channel
+    members: ["Facebook", "Google", "Referral", "Linear TV", "Website"]
+  region:
+    label: "Region"
+    source: analytics.v_leads
+    column: metro
+    synonyms: ["metro", "area"]
