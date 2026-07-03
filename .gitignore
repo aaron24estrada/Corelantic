@@ -25,5 +25,8 @@ next-env.d.ts
 .DS_Store
 *.log
 
+# Generated OpenAPI schema (intermediate; the typed client is committed instead)
+apps/api/openapi.json
+
 # Local working files (notes, trackers, anything with secrets — not shared)
 docs/_local/

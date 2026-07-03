@@ -1,11 +1,16 @@
 API := apps/api
 WEB := apps/web
 
-.PHONY: install dev-api dev-web lint format typecheck test check
+.PHONY: install dev-api dev-web lint format typecheck test check client
 
 install:
 	uv sync --directory $(API)
 	npm install --prefix $(WEB)
+
+# Regenerate the typed API client from the backend's OpenAPI schema.
+client:
+	uv run --directory $(API) python scripts/export_openapi.py
+	npm run gen:api --prefix $(WEB)
 
 dev-api:
 	uv run --directory $(API) corelantic-api
