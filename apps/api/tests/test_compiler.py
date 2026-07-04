@@ -1,32 +1,34 @@
 import pytest
 
 from app.query.compiler import compile_query
-from app.query.errors import CrossSourceError
+from app.query.errors import CrossEntityError
 from app.query.intent import QueryIntent
 from app.semantic.errors import UnknownDimensionError, UnknownMetricError
-from app.semantic.models import Dimension, Metric, SemanticRegistry
+from app.semantic.models import Dimension, Entity, Measure, Metric, SemanticRegistry
 
 
 def _registry() -> SemanticRegistry:
     return SemanticRegistry(
+        entities={
+            "leads": Entity(name="leads", label="Leads", source="analytics.v_leads"),
+            "cases": Entity(name="cases", label="Cases", source="analytics.v_cases"),
+        },
+        measures={
+            "lead_count": Measure(name="lead_count", entity="leads", expression="count(*)"),
+        },
         metrics={
             "new_leads": Metric(
                 name="new_leads",
                 label="New leads",
                 description="Lead count.",
-                source="analytics.v_leads",
-                expression="count(*)",
+                measure="lead_count",
             ),
         },
         dimensions={
-            "channel": Dimension(
-                name="channel", label="Channel", source="analytics.v_leads", column="channel"
-            ),
-            "region": Dimension(
-                name="region", label="Region", source="analytics.v_leads", column="metro"
-            ),
+            "channel": Dimension(name="channel", label="Channel", entity="leads", column="channel"),
+            "region": Dimension(name="region", label="Region", entity="leads", column="metro"),
             "attorney": Dimension(
-                name="attorney", label="Attorney", source="analytics.v_cases", column="attorney"
+                name="attorney", label="Attorney", entity="cases", column="attorney"
             ),
         },
     )
@@ -60,6 +62,6 @@ def test_unknown_dimension_raises() -> None:
         compile_query(QueryIntent(metric="new_leads", group_by=["missing"]), _registry())
 
 
-def test_cross_source_dimension_raises() -> None:
-    with pytest.raises(CrossSourceError):
+def test_cross_entity_dimension_raises() -> None:
+    with pytest.raises(CrossEntityError):
         compile_query(QueryIntent(metric="new_leads", group_by=["attorney"]), _registry())

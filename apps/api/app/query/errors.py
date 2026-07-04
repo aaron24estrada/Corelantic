@@ -1,23 +1,24 @@
 """Errors raised while compiling a query intent into SQL."""
 
-from app.semantic.models import Dimension, Metric
+from app.semantic.models import Dimension, Measure
 
 
 class CompileError(Exception):
     """Base for query-compilation failures."""
 
 
-class CrossSourceError(CompileError):
-    """A dimension is not on the metric's source.
+class CrossEntityError(CompileError):
+    """A dimension is not on the measure's entity.
 
-    The MVP compiler is single-source: every grouped or filtered dimension must live on
-    the same table or view as the metric. Cross-source joins are a later capability.
+    The MVP compiler is single-entity: every grouped or filtered dimension must live on
+    the same entity (table or view) as the metric's measure. Cross-entity joins are a
+    later capability.
     """
 
-    def __init__(self, metric: Metric, dimension: Dimension) -> None:
+    def __init__(self, measure: Measure, dimension: Dimension) -> None:
         super().__init__(
-            f"Dimension {dimension.name!r} (source {dimension.source!r}) is not on "
-            f"metric {metric.name!r}'s source ({metric.source!r})."
+            f"Dimension {dimension.name!r} (entity {dimension.entity!r}) is not on "
+            f"measure {measure.name!r}'s entity ({measure.entity!r})."
         )
-        self.metric = metric
+        self.measure = measure
         self.dimension = dimension
