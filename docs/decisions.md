@@ -24,7 +24,7 @@ Last updated 2026-07-03. Captures what's settled, what's still open, and what's 
 
 **O-1 — What exactly is the Azure SQL, and can we get a read-only credential?** "Azure SQL Express" is ambiguous (SQL Server Express on a VM vs. managed Azure SQL Database). This determines connection strategy and whether we need a replica/views to avoid loading production. Owner: Imran. Blocks M2.
 
-**O-2 — Schema and existing metric definitions for the nine visuals.** We need column names, grains, and how the current Power BI / ThoughtSpot metrics are defined, so our semantic layer matches what KRW already sees. Reusing existing view/worksheet definitions is ideal. Owner: Imran. Blocks M2/M3.
+**O-2 — Schema and existing metric definitions for the nine visuals.** *Partially answered 2026-07-05* — the KRW semantic model (tables, columns, measure names) is captured in [`data-model.md`](./data-model.md). That gives the structure and metric vocabulary. Still needed: the **measure formulas** (how `Cost per Lead`, `ROAS`, funnel rates, WoW/MoM are computed) so ours match KRW's numbers; confirmation of **which objects are queryable SQL** (vs Power-BI-only computed tables) with real names; and the two date roles (lead vs referral). Owner: Imran. Blocks the real semantic registry (currently a placeholder) for M2/M3.
 
 **O-3 — Deploy target: Azure or GCP.** Parked for Dom/Imran. Not blocking, because D-5 makes the build portable — but it should be settled before we stand up production infra.
 

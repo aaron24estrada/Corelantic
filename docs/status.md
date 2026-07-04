@@ -18,7 +18,7 @@ Health, metric listing, the BFF proxy (GET/POST), the SSR dashboard, internal-se
 ## Blocked — needs answers/inputs (the real critical path)
 
 - **O-1 — Azure SQL access.** Confirm the exact edition ("Azure SQL Express" is ambiguous) and get a **read-only, least-privilege credential**. Owner: Imran. Blocks real data.
-- **O-2 — schema + metric definitions** behind the nine dashboard visuals, so the semantic layer matches what KRW already sees. Owner: Imran. Blocks the real semantic registry (currently a placeholder).
+- **O-2 — schema + metric definitions.** *Partially received* — the KRW semantic model is captured in [`data-model.md`](./data-model.md) (tables, columns, measure names). Still needed: the measure **formulas**, which objects are queryable SQL, and the two date roles. Owner: Imran. Blocks the real semantic registry (currently a placeholder).
 - **O-4 — auth.** Reuse Entra vs. Corelantic's own IdP. Owner: you/Dom. Blocks wiring the web login.
 - **O-5 — chart format.** ECharts vs. whatever Imran's agent emits. Owner: Imran. Blocks the shared `<Chart>` contract.
 - **O-3 — deploy target** (Azure vs GCP). Parked for Dom; not blocking (the build is portable).

@@ -13,6 +13,8 @@ This first MVP is a **custom replica of the KRW Analytics embedded experience**,
 3. [`data-and-semantic-layer.md`](./data-and-semantic-layer.md) — how we read Azure SQL safely, and the semantic layer that makes NL querying trustworthy. **The main risk lives here.**
 4. [`nlq-pipeline.md`](./nlq-pipeline.md) — the agentic natural-language → analytics flow.
 5. [`decisions.md`](./decisions.md) — what's settled, what's open, and what's deferred.
+6. [`data-model.md`](./data-model.md) — the KRW semantic model (real tables, columns, and measures) the build reproduces.
+7. [`status.md`](./status.md) — current state, blockers, and next steps (start here to continue).
 
 ## One-line summary of the decisions
 
