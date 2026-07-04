@@ -1,0 +1,60 @@
+# Hooks run our exact toolchain (same as `make check`), so local and CI never drift.
+# Install once:  make hooks   (or: pre-commit install)
+# Run manually:  pre-commit run --all-files
+
+exclude: |
+  (?x)^(
+    apps/web/src/lib/api/schema\.d\.ts|
+    apps/api/openapi\.json|
+    .*\.svg|
+    .*/package-lock\.json|
+    .*/uv\.lock
+  )$
+
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-merge-conflict
+      - id: check-yaml
+      - id: check-added-large-files
+        args: ["--maxkb=1024"]
+
+  - repo: local
+    hooks:
+      - id: ruff-check
+        name: ruff check (api)
+        entry: bash -c 'cd apps/api && uv run ruff check --fix .'
+        language: system
+        files: ^apps/api/.*\.py$
+        pass_filenames: false
+
+      - id: ruff-format
+        name: ruff format (api)
+        entry: bash -c 'cd apps/api && uv run ruff format .'
+        language: system
+        files: ^apps/api/.*\.py$
+        pass_filenames: false
+
+      - id: mypy
+        name: mypy --strict (api)
+        entry: bash -c 'cd apps/api && uv run mypy'
+        language: system
+        files: ^apps/api/.*\.py$
+        pass_filenames: false
+
+      - id: eslint
+        name: eslint (web)
+        entry: bash -c 'cd apps/web && npm run lint'
+        language: system
+        files: ^apps/web/.*\.(ts|tsx)$
+        pass_filenames: false
+
+      - id: prettier
+        name: prettier (web)
+        entry: bash -c 'cd apps/web && npx prettier --write .'
+        language: system
+        files: ^apps/web/.*\.(ts|tsx|css|json|md)$
+        pass_filenames: false

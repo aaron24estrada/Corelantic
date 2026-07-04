@@ -1,11 +1,15 @@
 API := apps/api
 WEB := apps/web
 
-.PHONY: install dev-api dev-web lint format typecheck test check client
+.PHONY: install hooks dev-api dev-web lint format typecheck test check client
 
 install:
 	uv sync --directory $(API)
 	npm install --prefix $(WEB)
+
+# Install git pre-commit hooks (requires pre-commit: `uv tool install pre-commit`).
+hooks:
+	pre-commit install
 
 # Regenerate the typed API client from the backend's OpenAPI schema.
 client:
