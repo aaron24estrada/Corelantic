@@ -4,7 +4,7 @@ from fastapi.testclient import TestClient
 from app.api.dependencies import get_registry
 from app.core.config import Settings, get_settings
 from app.main import create_app
-from app.semantic.models import Dimension, Metric, SemanticRegistry
+from app.semantic.models import Dimension, Entity, Measure, Metric, SemanticRegistry
 
 INTERNAL_KEY = "test-internal-key"
 
@@ -12,28 +12,23 @@ INTERNAL_KEY = "test-internal-key"
 @pytest.fixture
 def registry() -> SemanticRegistry:
     return SemanticRegistry(
+        entities={"leads": Entity(name="leads", label="Leads", source="analytics.v_leads")},
+        measures={
+            "lead_count": Measure(
+                name="lead_count", label="Lead count", entity="leads", expression="count(*)"
+            ),
+        },
         metrics={
             "new_leads": Metric(
                 name="new_leads",
                 label="New leads",
                 description="Count of new intake leads.",
-                source="analytics.v_leads",
-                expression="count(*)",
+                measure="lead_count",
             ),
         },
         dimensions={
-            "channel": Dimension(
-                name="channel",
-                label="Channel",
-                source="analytics.v_leads",
-                column="channel",
-            ),
-            "region": Dimension(
-                name="region",
-                label="Region",
-                source="analytics.v_leads",
-                column="metro",
-            ),
+            "channel": Dimension(name="channel", label="Channel", entity="leads", column="channel"),
+            "region": Dimension(name="region", label="Region", entity="leads", column="metro"),
         },
     )
 

@@ -1,12 +1,26 @@
-"""Errors raised when an intent references vocabulary the registry does not define.
+"""Errors raised when a name cannot be resolved in the semantic registry.
 
-These map to 404s at the HTTP boundary — the caller named a metric or dimension we do
-not know, which is a client error, never a guess.
+Metric and dimension lookups fail when an *intent* names vocabulary we do not define —
+a client error that maps to a 404 at the HTTP boundary, never a guess. Entity and
+measure lookups back the internal references between the four types; a dangling one is
+caught at load by ``validate_registry`` (an authoring error, not a request error).
 """
 
 
 class SemanticError(Exception):
     """Base for semantic-layer lookup failures."""
+
+
+class UnknownEntityError(SemanticError):
+    def __init__(self, name: str) -> None:
+        super().__init__(f"Unknown entity: {name!r}.")
+        self.name = name
+
+
+class UnknownMeasureError(SemanticError):
+    def __init__(self, name: str) -> None:
+        super().__init__(f"Unknown measure: {name!r}.")
+        self.name = name
 
 
 class UnknownMetricError(SemanticError):
