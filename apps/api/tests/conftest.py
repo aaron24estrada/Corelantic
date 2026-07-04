@@ -2,8 +2,11 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.api.dependencies import get_registry
+from app.core.config import Settings, get_settings
 from app.main import create_app
 from app.semantic.models import Dimension, Metric, SemanticRegistry
+
+INTERNAL_KEY = "test-internal-key"
 
 
 @pytest.fixture
@@ -36,7 +39,15 @@ def registry() -> SemanticRegistry:
 
 
 @pytest.fixture
-def client(registry: SemanticRegistry) -> TestClient:
+def settings() -> Settings:
+    return Settings(internal_api_key=INTERNAL_KEY)
+
+
+@pytest.fixture
+def client(registry: SemanticRegistry, settings: Settings) -> TestClient:
     app = create_app()
     app.dependency_overrides[get_registry] = lambda: registry
-    return TestClient(app)
+    app.dependency_overrides[get_settings] = lambda: settings
+    client = TestClient(app)
+    client.headers["X-Internal-Api-Key"] = INTERNAL_KEY
+    return client

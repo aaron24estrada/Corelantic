@@ -41,6 +41,14 @@ uv run pytest
 
 `make check` (repo root) runs lint + typecheck + tests across both apps.
 
+## Authentication
+
+Business routes require the BFF's shared secret in the `X-Internal-Api-Key` header, checked in constant time and **fail-closed**: if `CORELANTIC_API_INTERNAL_API_KEY` is unset, guarded routes answer **503** rather than allowing unauthenticated access. `/health` is open for liveness probes. For local dev, set the same value in this app's `.env` (`CORELANTIC_API_INTERNAL_API_KEY`) and the web app's `.env.local` (`INTERNAL_API_KEY`).
+
+## Observability
+
+Every request gets an id (from an inbound `X-Request-Id` or generated), echoed on the response and attached to every JSON log line for that request. Logs are one JSON object per line; unhandled exceptions are logged with a traceback and returned to the client as a generic 500 (no internals leaked).
+
 ## Current state
 
-The health endpoint and the metric *listing* work today. Reading metric data and the NL agent return **503** until their providers are provisioned: the Azure SQL data source (docs O-1) and the Claude LLM key. The semantic registry ships a clearly-marked **placeholder** (`semantic/leads.example.yaml`) so the API runs end to end; it is replaced with real definitions once the KRW schema is available (docs O-2).
+The health endpoint and the metric *listing* work today (with the internal key). Reading metric data and the NL agent return **503** until their providers are provisioned: the Azure SQL data source (docs O-1) and the Claude LLM key. The semantic registry ships a clearly-marked **placeholder** (`semantic/leads.example.yaml`) so the API runs end to end; it is replaced with real definitions once the KRW schema is available (docs O-2).

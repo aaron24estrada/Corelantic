@@ -233,7 +233,9 @@ export interface operations {
     "metrics-list_metrics": {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                "X-Internal-Api-Key"?: string | null;
+            };
             path?: never;
             cookie?: never;
         };
@@ -248,12 +250,23 @@ export interface operations {
                     "application/json": components["schemas"]["MetricListResponse"];
                 };
             };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
         };
     };
     "metrics-get_metric": {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                "X-Internal-Api-Key"?: string | null;
+            };
             path: {
                 metric_name: string;
             };
@@ -284,7 +297,9 @@ export interface operations {
     "nlq-ask": {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                "X-Internal-Api-Key"?: string | null;
+            };
             path?: never;
             cookie?: never;
         };
