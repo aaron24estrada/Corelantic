@@ -32,8 +32,12 @@ measures:
   spend_total:
     entity: leads
     expression: "sum(spend)"
+  revenue_total:
+    entity: leads
+    expression: "sum(revenue)"
 
 metrics:
+  # Simple — surfaces one measure (type defaults to "simple" when omitted).
   new_leads:
     label: "New leads"
     description: "Count of new intake leads in the period."
@@ -45,3 +49,19 @@ metrics:
     measure: spend_total
     format: currency
     synonyms: ["spend", "ad spend"]
+  # Ratio — one measure over another, guarded against a zero denominator.
+  cost_per_lead:
+    type: ratio
+    label: "Cost per lead"
+    description: "Marketing spend divided by new leads."
+    numerator: spend_total
+    denominator: lead_count
+    format: currency
+    synonyms: ["CPL", "cost per acquisition"]
+  roas:
+    type: ratio
+    label: "ROAS"
+    description: "Return on ad spend: revenue divided by marketing spend."
+    numerator: revenue_total
+    denominator: spend_total
+    synonyms: ["return on ad spend"]

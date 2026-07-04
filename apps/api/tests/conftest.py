@@ -4,7 +4,7 @@ from fastapi.testclient import TestClient
 from app.api.dependencies import get_registry
 from app.core.config import Settings, get_settings
 from app.main import create_app
-from app.semantic.models import Dimension, Entity, Measure, Metric, SemanticRegistry
+from app.semantic.models import Dimension, Entity, Measure, SemanticRegistry, SimpleMetric
 
 INTERNAL_KEY = "test-internal-key"
 
@@ -17,7 +17,7 @@ def registry() -> SemanticRegistry:
             "lead_count": Measure(name="lead_count", entity="leads", expression="count(*)"),
         },
         metrics={
-            "new_leads": Metric(
+            "new_leads": SimpleMetric(
                 name="new_leads",
                 label="New leads",
                 description="Count of new intake leads.",
