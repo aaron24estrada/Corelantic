@@ -6,7 +6,7 @@ Monorepo (planned): `apps/web` (Next.js, App Router) and `apps/api` (FastAPI, uv
 
 ## Specification (read for context)
 
-The MVP is specified in [`docs/`](docs/). Read [`docs/README.md`](docs/README.md) first; it orders the rest. The load-bearing decisions:
+The MVP is specified in [`docs/`](docs/). **New here? Start with [`docs/status.md`](docs/status.md)** — where the build is, what's verified, what's blocked, and what to do next. Then [`docs/README.md`](docs/README.md) orders the rest. The load-bearing decisions:
 
 - Custom build, single data source (KRW's Azure SQL, **read-only**), portable FastAPI backend with the agent **in-process**, custom React dashboard + custom NL analytics panel.
 - Reuse **Entra SSO**; do not build custom auth. Anti-lock-in lives at the data-source and model-provider seams, not auth.
