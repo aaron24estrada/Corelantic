@@ -5,11 +5,12 @@ account. Concrete adapters (Azure SQL, pending docs O-1) live beside this module
 selected by the factory. Application code depends only on this Protocol.
 """
 
-from collections.abc import Mapping
-from typing import Protocol
+from typing import Any, Protocol
+
+from sqlalchemy import Select
 
 
 class DataSource(Protocol):
-    async def run(self, sql: str, params: Mapping[str, str]) -> list[dict[str, object]]:
-        """Execute a read-only, parameterized query and return rows as dicts."""
+    async def run(self, statement: Select[Any]) -> list[dict[str, object]]:
+        """Execute a read-only SELECT statement (values bound in it) and return rows."""
         ...

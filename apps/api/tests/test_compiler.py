@@ -1,4 +1,7 @@
+from typing import Any
+
 import pytest
+from sqlalchemy import Select
 
 from app.query.compiler import compile_query
 from app.query.errors import CrossEntityError
@@ -34,22 +37,43 @@ def _registry() -> SemanticRegistry:
     )
 
 
-def test_compiles_group_by_and_filter_to_parameterized_sql() -> None:
+def _rendered(statement: Select[Any]) -> tuple[str, dict[str, Any]]:
+    # Collapse the dialect's clause-per-line layout so assertions read as one statement.
+    compiled = statement.compile()
+    return " ".join(str(compiled).split()), dict(compiled.params)
+
+
+def test_compiles_group_by_and_filter_to_a_select() -> None:
     intent = QueryIntent(metric="new_leads", group_by=["channel"], filters={"region": "Houston"})
 
-    compiled = compile_query(intent, _registry())
+    sql, params = _rendered(compile_query(intent, _registry()))
 
-    assert compiled.sql == (
+    assert sql == (
         "SELECT channel AS channel, count(*) AS new_leads "
-        "FROM analytics.v_leads WHERE metro = :f0 GROUP BY channel"
+        "FROM analytics.v_leads WHERE metro = :metro_1 GROUP BY channel"
     )
-    assert compiled.params == {"f0": "Houston"}
+    assert params == {"metro_1": "Houston"}
 
 
 def test_bare_metric_has_no_where_or_group_by() -> None:
-    compiled = compile_query(QueryIntent(metric="new_leads"), _registry())
-    assert compiled.sql == "SELECT count(*) AS new_leads FROM analytics.v_leads"
-    assert compiled.params == {}
+    sql, params = _rendered(compile_query(QueryIntent(metric="new_leads"), _registry()))
+    assert sql == "SELECT count(*) AS new_leads FROM analytics.v_leads"
+    assert params == {}
+
+
+def test_filter_value_is_bound_never_interpolated() -> None:
+    # A hostile value must land in the bound parameters, never in the SQL text — the
+    # structural guarantee of building a Core statement instead of a string.
+    hostile = "Houston'; DROP TABLE v_leads; --"
+    statement = compile_query(
+        QueryIntent(metric="new_leads", filters={"region": hostile}), _registry()
+    )
+
+    sql, params = _rendered(statement)
+
+    assert hostile not in sql
+    assert sql == "SELECT count(*) AS new_leads FROM analytics.v_leads WHERE metro = :metro_1"
+    assert params == {"metro_1": hostile}
 
 
 def test_unknown_metric_raises() -> None:

@@ -35,7 +35,7 @@ class Orchestrator:
 
     async def ask(self, question: str) -> AskResult:
         intent = await self._llm.plan_intent(question, self._registry)
-        compiled = compile_query(intent, self._registry)
-        rows = await self._data_source.run(compiled.sql, compiled.params)
+        statement = compile_query(intent, self._registry)
+        rows = await self._data_source.run(statement)
         narrative = await self._llm.write_narrative(question, rows)
         return AskResult(intent=intent, rows=rows, narrative=narrative)
