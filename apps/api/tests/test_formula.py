@@ -3,19 +3,18 @@ from typing import Any
 import pytest
 from sqlalchemy import ColumnElement, literal_column
 
-from app.query.errors import FormulaError
 from app.query.formula import build_formula
+from app.semantic.errors import InvalidFormulaError
+
+_ALLOWED = {"a", "b", "c"}
 
 
 def _resolve(name: str) -> ColumnElement[Any]:
-    known = {"a", "b", "c"}
-    if name not in known:
-        raise FormulaError(name, f"unknown measure {name!r}")
     return literal_column(f"agg_{name}")
 
 
 def _sql(expression: str) -> str:
-    return " ".join(str(build_formula(expression, _resolve).compile()).split())
+    return " ".join(str(build_formula(expression, _ALLOWED, _resolve).compile()).split())
 
 
 def test_operators_and_precedence() -> None:
@@ -49,10 +48,10 @@ def test_numeric_literals_render_inline() -> None:
     ],
 )
 def test_disallowed_syntax_raises(expression: str) -> None:
-    with pytest.raises(FormulaError):
-        build_formula(expression, _resolve)
+    with pytest.raises(InvalidFormulaError):
+        build_formula(expression, _ALLOWED, _resolve)
 
 
-def test_unknown_name_is_rejected_by_the_resolver() -> None:
-    with pytest.raises(FormulaError):
-        build_formula("a + z", _resolve)
+def test_name_not_in_allowed_is_rejected() -> None:
+    with pytest.raises(InvalidFormulaError):
+        build_formula("a + z", _ALLOWED, _resolve)

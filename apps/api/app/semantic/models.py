@@ -21,7 +21,7 @@ us; they are the trusted side of the SQL trust boundary (see app/query/compiler.
 from enum import StrEnum
 from typing import Annotated, Literal
 
-from pydantic import BaseModel, Field, TypeAdapter
+from pydantic import BaseModel, ConfigDict, Field, TypeAdapter
 
 from app.semantic.errors import (
     UnknownDimensionError,
@@ -29,6 +29,18 @@ from app.semantic.errors import (
     UnknownMeasureError,
     UnknownMetricError,
 )
+
+
+class SemanticModel(BaseModel):
+    """Base for every registry model: unknown fields are a load-time error.
+
+    Authoring mistakes — a misspelled key, or ratio fields on a metric that forgot
+    ``type: ratio`` and defaulted to simple — fail loudly at load instead of being
+    silently dropped. The registry is the trusted side of the SQL boundary; a definition
+    that does not mean what it says must not load.
+    """
+
+    model_config = ConfigDict(extra="forbid")
 
 
 class MetricFormat(StrEnum):
@@ -45,7 +57,7 @@ class MetricType(StrEnum):
     COMPARISON = "comparison"
 
 
-class Entity(BaseModel):
+class Entity(SemanticModel):
     """A queryable table or view — the one place a physical binding lives."""
 
     name: str = Field(description="Stable identifier, referenced by dimensions and measures.")
@@ -53,7 +65,7 @@ class Entity(BaseModel):
     source: str = Field(description="Physical table or view this entity binds to.")
 
 
-class Dimension(BaseModel):
+class Dimension(SemanticModel):
     name: str = Field(description="Stable identifier, referenced by intents and visuals.")
     label: str = Field(description="Human-readable label for display.")
     entity: str = Field(description="Name of the entity this dimension is read from.")
@@ -66,7 +78,7 @@ class Dimension(BaseModel):
     )
 
 
-class Measure(BaseModel):
+class Measure(SemanticModel):
     """An aggregation over an entity — the aggregate side of a metric's definition."""
 
     name: str = Field(description="Stable identifier, referenced by metrics.")
@@ -74,7 +86,7 @@ class Measure(BaseModel):
     expression: str = Field(description="SQL aggregate expression, e.g. count(*) or sum(spend).")
 
 
-class MetricBase(BaseModel):
+class MetricBase(SemanticModel):
     """Fields every metric carries, regardless of how its value is composed."""
 
     name: str = Field(description="Stable identifier, referenced by intents and visuals.")
@@ -143,7 +155,7 @@ Metric = Annotated[
 METRIC_ADAPTER: TypeAdapter[Metric] = TypeAdapter(Metric)
 
 
-class SemanticRegistry(BaseModel):
+class SemanticRegistry(SemanticModel):
     entities: dict[str, Entity] = Field(default_factory=dict)
     dimensions: dict[str, Dimension] = Field(default_factory=dict)
     measures: dict[str, Measure] = Field(default_factory=dict)

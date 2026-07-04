@@ -23,20 +23,6 @@ class CrossEntityError(CompileError):
         self.dimension = dimension
 
 
-class FormulaError(CompileError):
-    """A derived metric's formula is not a supported expression.
-
-    Formulas are a tiny language — component-measure names, numeric literals, and the
-    binary operators ``+ - * /`` — parsed into a Core expression tree. Anything else
-    (calls, attributes, an unknown measure name) is rejected rather than executed.
-    """
-
-    def __init__(self, expression: str, reason: str) -> None:
-        super().__init__(f"Invalid formula {expression!r}: {reason}.")
-        self.expression = expression
-        self.reason = reason
-
-
 class TimeIntelligenceRequiredError(CompileError):
     """A metric type needs time intelligence the MVP compiler does not have yet.
 

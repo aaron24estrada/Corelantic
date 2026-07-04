@@ -1,6 +1,8 @@
 import pytest
+from pydantic import ValidationError
 
 from app.semantic.errors import (
+    InvalidFormulaError,
     MixedEntityError,
     UnknownDimensionError,
     UnknownEntityError,
@@ -106,6 +108,47 @@ def test_validate_registry_rejects_ratio_with_missing_measure() -> None:
     )
     with pytest.raises(UnknownMeasureError):
         validate_registry(registry)
+
+
+def test_validate_registry_rejects_derived_with_undeclared_measure_in_formula() -> None:
+    registry = build_registry(
+        {
+            "entities": {"leads": {"label": "Leads", "source": "analytics.v_leads"}},
+            "measures": {
+                "lead_count": {"entity": "leads", "expression": "count(*)"},
+                "spend_total": {"entity": "leads", "expression": "sum(spend)"},
+            },
+            "metrics": {
+                "bad": {
+                    "type": "derived",
+                    "label": "Bad",
+                    "description": "x",
+                    "measures": ["lead_count"],
+                    "expression": "lead_count + spend_total",  # spend_total not declared
+                },
+            },
+        }
+    )
+    with pytest.raises(InvalidFormulaError):
+        validate_registry(registry)
+
+
+def test_build_registry_rejects_unknown_fields() -> None:
+    # A ratio that forgot `type: ratio` defaults to simple; its numerator/denominator are
+    # then unknown fields and must fail loudly rather than be silently dropped.
+    with pytest.raises(ValidationError):
+        build_registry(
+            {
+                "metrics": {
+                    "cost_per_lead": {
+                        "label": "Cost per lead",
+                        "description": "x",
+                        "numerator": "spend_total",
+                        "denominator": "lead_count",
+                    },
+                },
+            }
+        )
 
 
 def test_validate_registry_rejects_metric_mixing_entities() -> None:

@@ -1,13 +1,11 @@
-"""Compile a derived metric's formula into a SQLAlchemy Core expression tree.
+"""Translate a derived metric's formula into a SQLAlchemy Core expression tree.
 
-A formula is a deliberately tiny language: component-measure *names*, numeric literals,
-and the binary operators ``+ - * /`` (plus unary minus). We parse it with Python's
-``ast`` and walk only that allowlist of node types, translating each into a Core column
-expression. There is no ``eval`` and no string SQL: an unsupported node, or a name the
-caller's resolver rejects, raises ``FormulaError`` instead of reaching the database.
-
-Division is guarded with ``nullif(denominator, 0)`` so a zero denominator yields NULL
-rather than a runtime error — the same guard ratio metrics get.
+The grammar itself — which names, literals, and operators are legal — is owned by
+``app/semantic/formula.py``; we call its ``validate_formula`` first, so this module only
+ever walks an expression that has already been approved. There is no ``eval`` and no
+string SQL: names resolve to authored measure expressions, numbers render as literals,
+and ``+ - * /`` become Core operators. Division is guarded with ``nullif(denominator, 0)``
+so a zero denominator yields NULL rather than a runtime error.
 """
 
 import ast
@@ -16,19 +14,16 @@ from typing import Any
 
 from sqlalchemy import ColumnElement, func, literal_column
 
-from app.query.errors import FormulaError
+from app.semantic.formula import validate_formula
 
-# Measure name -> the Core expression for that measure. Supplied by the compiler, which
-# also enforces that the name is one of the metric's declared component measures.
+# Measure name -> the Core expression for that measure, supplied by the compiler.
 Resolver = Callable[[str], ColumnElement[Any]]
 
 
-def build_formula(expression: str, resolve: Resolver) -> ColumnElement[Any]:
-    try:
-        tree = ast.parse(expression, mode="eval")
-    except SyntaxError as exc:
-        raise FormulaError(expression, "not a parseable expression") from exc
-    return _eval(tree.body, expression, resolve)
+def build_formula(expression: str, allowed: set[str], resolve: Resolver) -> ColumnElement[Any]:
+    validate_formula(expression, allowed)
+    tree = ast.parse(expression, mode="eval")
+    return _to_core(tree.body, resolve)
 
 
 def safe_divide(
@@ -39,26 +34,23 @@ def safe_divide(
     return numerator / func.nullif(denominator, 0)
 
 
-def _eval(node: ast.expr, expression: str, resolve: Resolver) -> ColumnElement[Any]:
+def _to_core(node: ast.expr, resolve: Resolver) -> ColumnElement[Any]:
+    # validate_formula has already rejected anything off the allowlist, so the branches
+    # here mirror it exactly; the final raise is a defensive backstop, not a user path.
     if isinstance(node, ast.Name):
         return resolve(node.id)
-    if isinstance(node, ast.Constant) and isinstance(node.value, (int, float)):
-        # Reject bools (a subtype of int) — they are not meaningful in a formula.
-        if isinstance(node.value, bool):
-            raise FormulaError(expression, "boolean literals are not allowed")
+    if isinstance(node, ast.Constant):
         return literal_column(repr(node.value))
-    if isinstance(node, ast.UnaryOp) and isinstance(node.op, ast.USub):
-        return -_eval(node.operand, expression, resolve)
+    if isinstance(node, ast.UnaryOp):
+        return -_to_core(node.operand, resolve)
     if isinstance(node, ast.BinOp):
-        left = _eval(node.left, expression, resolve)
-        right = _eval(node.right, expression, resolve)
+        left = _to_core(node.left, resolve)
+        right = _to_core(node.right, resolve)
         if isinstance(node.op, ast.Add):
             return left + right
         if isinstance(node.op, ast.Sub):
             return left - right
         if isinstance(node.op, ast.Mult):
             return left * right
-        if isinstance(node.op, ast.Div):
-            return safe_divide(left, right)
-        raise FormulaError(expression, f"operator {type(node.op).__name__} is not allowed")
-    raise FormulaError(expression, f"{type(node).__name__} is not allowed")
+        return safe_divide(left, right)
+    raise AssertionError(f"unvalidated formula node: {type(node).__name__}")  # pragma: no cover

@@ -30,6 +30,20 @@ class UnknownMetricError(SemanticError):
         self.name = name
 
 
+class InvalidFormulaError(SemanticError):
+    """A derived metric's formula is not a supported expression.
+
+    Formulas are a tiny language — component-measure names, numeric literals, and the
+    binary operators ``+ - * /`` (plus unary minus). Anything else, or a name that is not
+    one of the metric's declared measures, is a definition error caught at load.
+    """
+
+    def __init__(self, expression: str, reason: str) -> None:
+        super().__init__(f"Invalid formula {expression!r}: {reason}.")
+        self.expression = expression
+        self.reason = reason
+
+
 class MixedEntityError(SemanticError):
     """A metric's component measures live on more than one entity.
 

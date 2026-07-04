@@ -21,7 +21,7 @@ from typing import Any, assert_never
 
 from sqlalchemy import ColumnElement, Select, TableClause, column, literal_column, select, table
 
-from app.query.errors import CrossEntityError, FormulaError, TimeIntelligenceRequiredError
+from app.query.errors import CrossEntityError, TimeIntelligenceRequiredError
 from app.query.formula import build_formula, safe_divide
 from app.query.intent import QueryIntent
 from app.semantic.models import (
@@ -78,16 +78,12 @@ def _value_expression(metric: Metric, registry: SemanticRegistry) -> ColumnEleme
         denominator = _measure(registry.measure(metric.denominator))
         return safe_divide(numerator, denominator)
     if isinstance(metric, DerivedMetric):
-        allowed = set(metric.measures)
-
+        # build_formula validates the expression (names must be in `measures`) before
+        # translating it; resolve only maps an approved name to its measure expression.
         def resolve(name: str) -> ColumnElement[Any]:
-            if name not in allowed:
-                raise FormulaError(
-                    metric.expression, f"{name!r} is not one of the metric's measures"
-                )
             return _measure(registry.measure(name))
 
-        return build_formula(metric.expression, resolve)
+        return build_formula(metric.expression, set(metric.measures), resolve)
     if isinstance(metric, (CumulativeMetric, ComparisonMetric)):
         raise TimeIntelligenceRequiredError(metric)
     assert_never(metric)

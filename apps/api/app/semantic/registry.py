@@ -16,8 +16,10 @@ from typing import Any
 
 import yaml
 
+from app.semantic.formula import validate_formula
 from app.semantic.models import (
     METRIC_ADAPTER,
+    DerivedMetric,
     Dimension,
     Entity,
     Measure,
@@ -60,6 +62,9 @@ def validate_registry(registry: SemanticRegistry) -> SemanticRegistry:
     for metric in registry.metrics.values():
         # Resolves every component measure and confirms they share one entity.
         resolve_metric_entity(metric, registry)
+        if isinstance(metric, DerivedMetric):
+            # Formula must parse and reference only the metric's declared measures.
+            validate_formula(metric.expression, set(metric.measures))
     return registry
 
 

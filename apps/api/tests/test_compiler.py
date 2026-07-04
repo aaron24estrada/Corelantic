@@ -4,9 +4,14 @@ import pytest
 from sqlalchemy import Select
 
 from app.query.compiler import compile_query
-from app.query.errors import CrossEntityError, FormulaError, TimeIntelligenceRequiredError
+from app.query.errors import CrossEntityError, TimeIntelligenceRequiredError
 from app.query.intent import QueryIntent
-from app.semantic.errors import MixedEntityError, UnknownDimensionError, UnknownMetricError
+from app.semantic.errors import (
+    InvalidFormulaError,
+    MixedEntityError,
+    UnknownDimensionError,
+    UnknownMetricError,
+)
 from app.semantic.models import (
     ComparisonMetric,
     CumulativeMetric,
@@ -163,7 +168,7 @@ def test_derived_formula_referencing_a_measure_not_declared_raises() -> None:
         measures=["lead_count"],
         expression="lead_count + spend_total",  # spend_total not in measures
     )
-    with pytest.raises(FormulaError):
+    with pytest.raises(InvalidFormulaError):
         compile_query(QueryIntent(metric="bad"), registry)
 
 
@@ -176,7 +181,7 @@ def test_derived_formula_with_disallowed_syntax_raises() -> None:
         measures=["lead_count"],
         expression="evil(lead_count)",  # a call is not in the allowlist
     )
-    with pytest.raises(FormulaError):
+    with pytest.raises(InvalidFormulaError):
         compile_query(QueryIntent(metric="bad"), registry)
 
 
