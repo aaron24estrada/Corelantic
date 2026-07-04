@@ -14,9 +14,7 @@ def _registry() -> SemanticRegistry:
             "cases": Entity(name="cases", label="Cases", source="analytics.v_cases"),
         },
         measures={
-            "lead_count": Measure(
-                name="lead_count", label="Lead count", entity="leads", expression="count(*)"
-            ),
+            "lead_count": Measure(name="lead_count", entity="leads", expression="count(*)"),
         },
         metrics={
             "new_leads": Metric(

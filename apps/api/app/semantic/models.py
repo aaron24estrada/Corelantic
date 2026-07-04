@@ -58,7 +58,6 @@ class Measure(BaseModel):
     """An aggregation over an entity — the aggregate side of a metric's definition."""
 
     name: str = Field(description="Stable identifier, referenced by metrics.")
-    label: str = Field(description="Human-readable label for display.")
     entity: str = Field(description="Name of the entity this measure aggregates over.")
     expression: str = Field(description="SQL aggregate expression, e.g. count(*) or sum(spend).")
 

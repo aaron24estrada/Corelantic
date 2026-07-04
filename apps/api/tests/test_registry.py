@@ -16,8 +16,8 @@ def _raw() -> dict[str, object]:
             "leads": {"label": "Leads", "source": "analytics.v_leads"},
         },
         "measures": {
-            "spend_total": {"label": "Spend total", "entity": "leads", "expression": "sum(spend)"},
-            "lead_count": {"label": "Lead count", "entity": "leads", "expression": "count(*)"},
+            "spend_total": {"entity": "leads", "expression": "sum(spend)"},
+            "lead_count": {"entity": "leads", "expression": "count(*)"},
         },
         "metrics": {
             "marketing_spend": {
@@ -78,11 +78,7 @@ def test_validate_registry_rejects_dimension_with_missing_entity() -> None:
 
 def test_validate_registry_rejects_measure_with_missing_entity() -> None:
     registry = build_registry(
-        {
-            "measures": {
-                "lead_count": {"label": "Lead count", "entity": "ghost", "expression": "count(*)"}
-            }
-        }
+        {"measures": {"lead_count": {"entity": "ghost", "expression": "count(*)"}}}
     )
     with pytest.raises(UnknownEntityError):
         validate_registry(registry)

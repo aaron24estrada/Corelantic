@@ -27,11 +27,9 @@ dimensions:
 
 measures:
   lead_count:
-    label: "Lead count"
     entity: leads
     expression: "count(*)"
   spend_total:
-    label: "Spend total"
     entity: leads
     expression: "sum(spend)"
 
