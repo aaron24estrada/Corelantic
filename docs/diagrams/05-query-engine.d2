@@ -1,0 +1,39 @@
+# Query engine — the trust boundary. An intent (registry vocabulary only) compiles
+# to parameterized SQL; identifiers come from the model, values are always bound.
+vars: { d2-config: { layout-engine: elk } }
+direction: down
+
+Intent: QueryIntent {
+  shape: class
+  style.fill: "#FDF4D6"
+  metric: str
+  group_by: list_str
+  filters: dict
+  grain: str
+}
+
+compiler: "compile_query()\napp/query/compiler.py → SQLAlchemy Core" {
+  style.fill: "#FFFFFF"; style.stroke: "#B4B4C6"; style.stroke-dash: 3
+}
+
+safety: "validate against registry\n· identifiers from model only\n· filter values bound as params\n· SELECT-only, row + time capped" {
+  style.fill: "#FDF4D6"; style.stroke: "#E1CB80"; style.font-size: 12
+}
+
+sql: "parameterized SQL" {
+  style.fill: "#FFFFFF"; style.stroke: "#B4B4C6"; style.stroke-dash: 3
+}
+
+ds: "DataSource\napp/adapters/data (read-only role)" {
+  style.fill: "#FFFFFF"; style.stroke: "#B4B4C6"; style.stroke-dash: 3
+}
+
+store: "Canonical store" { style.fill: "#D9F0F3"; style.stroke: "#98D0D9" }
+rows: "typed rows" { style.fill: "#FFFFFF"; style.stroke: "#B4B4C6"; style.stroke-dash: 3 }
+
+Intent -> compiler
+compiler -> safety: enforces
+safety -> sql
+sql -> ds
+ds -> store: execute
+store -> rows: result

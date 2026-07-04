@@ -1,0 +1,37 @@
+# Mapping B — the in-house semantic model, and how it binds canonical columns
+# to business concepts. Authored once; app/semantic (registry.py + *.yaml).
+vars: { d2-config: { layout-engine: elk } }
+direction: down
+
+model: "Semantic model (typed)" {
+  style.fill: "#E7E0FB"; style.stroke: "#BBA9E6"
+
+  Entity: { shape: class; name: str; table: str }
+  Dimension: { shape: class; name: str; column: str; grain: week_or_month }
+  Measure: { shape: class; name: str; agg: sum_or_count }
+  Metric: { shape: class; name: str; type: simple_ratio_comparison_conversion; expr: str }
+
+  Entity -> Dimension: has
+  Entity -> Measure: has
+  Measure -> Metric: derives
+}
+
+example: "Concrete example (KRW)" {
+  style.fill: "#F1ECFC"; style.stroke: "#BBA9E6"
+  e: "entity  lead            → table leads"
+  d: "dim     channel         → leads.channel"
+  m1: "measure leads           → count(lead_id)"
+  m2: "measure spend           → sum(marketing_spend.amount)"
+  mt: "metric  cost_per_lead   → spend / leads   (ratio)"
+  wow: "metric  leads_wow_%     → period-over-period(leads)   (comparison)"
+}
+
+store: "Canonical columns" {
+  style.fill: "#D9F0F3"; style.stroke: "#98D0D9"
+  cols: "leads.channel · leads.lead_id · marketing_spend.amount · dim_date.month_start" {
+    style.fill: "#FFFFFF"; style.stroke: "#B4B4C6"; style.stroke-dash: 3; style.font-size: 12
+  }
+}
+
+example -> store: "binds to  (Mapping B)" { style.stroke-dash: 4 }
+model -> example: "instantiated as" { style.stroke-dash: 4 }

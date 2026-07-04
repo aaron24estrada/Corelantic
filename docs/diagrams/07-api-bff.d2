@@ -1,0 +1,36 @@
+# API + BFF boundary — the browser only talks to the web app; the web app calls the
+# private API server-to-server with the internal secret. The API is never reachable
+# from the browser.
+vars: { d2-config: { layout-engine: elk } }
+direction: right
+
+browser: "Browser" {
+  style.fill: "#F4E2F8"; style.stroke: "#D5A9E4"
+  ui: "dashboard · Ask your data"
+}
+
+web: "Web (Next.js) — BFF" {
+  style.fill: "#E7E8F2"; style.stroke: "#B4B7D2"
+  session: "session (identity)" {
+    style.fill: "#FFFFFF"; style.stroke: "#B4B4C6"; style.stroke-dash: 3; style.font-size: 12
+  }
+  server: "server client + /api/bff proxy\n(injects internal secret)" {
+    style.fill: "#FFFFFF"; style.stroke: "#B4B4C6"; style.stroke-dash: 3; style.font-size: 12
+  }
+}
+
+api: "API (FastAPI) — private" {
+  style.fill: "#FDF4D6"; style.stroke: "#E1CB80"
+  guard: "require internal key\n(fail-closed) · request-id logs" {
+    style.fill: "#FFFFFF"; style.stroke: "#B4B4C6"; style.stroke-dash: 3; style.font-size: 12
+  }
+  svc: "services → engine" {
+    style.fill: "#FFFFFF"; style.stroke: "#B4B4C6"; style.stroke-dash: 3; style.font-size: 12
+  }
+  guard -> svc
+}
+
+browser -> web: "HTTPS (session cookie only)"
+web.server -> api.guard: "server-to-server\nX-Internal-Api-Key"
+api -> web: "JSON"
+web -> browser: "rendered UI / JSON"

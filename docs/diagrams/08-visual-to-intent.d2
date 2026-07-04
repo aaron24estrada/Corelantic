@@ -1,0 +1,36 @@
+# A visual is just a query shape: measures × dimensions × filters × grain.
+# Each KRW dashboard tile maps to one intent — the model drives every visual.
+vars: { d2-config: { layout-engine: elk } }
+direction: right
+
+tiles: "Dashboard tiles" {
+  style.fill: "#F4E2F8"; style.stroke: "#D5A9E4"
+  kpi: "ROAS (KPI)"
+  bar: "What channels generate leads? (bar)"
+  funnel: "Milestone funnel"
+  map: "Leads by source (US map)"
+}
+
+intents: "Intents  { metric/measures, group_by, filters, grain }" {
+  style.fill: "#FDF4D6"; style.stroke: "#E1CB80"
+  i_kpi: "metric roas · grain month" {
+    style.fill: "#FFFFFF"; style.stroke: "#B4B4C6"; style.stroke-dash: 3; style.font-size: 12
+  }
+  i_bar: "measure leads · group_by channel" {
+    style.fill: "#FFFFFF"; style.stroke: "#B4B4C6"; style.stroke-dash: 3; style.font-size: 12
+  }
+  i_funnel: "measure reached(stage) · group_by stage" {
+    style.fill: "#FFFFFF"; style.stroke: "#B4B4C6"; style.stroke-dash: 3; style.font-size: 12
+  }
+  i_map: "measure leads · group_by geo.state" {
+    style.fill: "#FFFFFF"; style.stroke: "#B4B4C6"; style.stroke-dash: 3; style.font-size: 12
+  }
+}
+
+model: "Semantic model" { style.fill: "#E7E0FB"; style.stroke: "#BBA9E6" }
+
+tiles.kpi -> intents.i_kpi
+tiles.bar -> intents.i_bar
+tiles.funnel -> intents.i_funnel
+tiles.map -> intents.i_map
+intents -> model: "resolve against" { style.stroke-dash: 4 }

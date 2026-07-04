@@ -1,0 +1,45 @@
+# The two consumers of the engine: a deterministic dashboard path and an agentic
+# path. Both produce the same QueryIntent and share the compiler; only the agent
+# uses the LLM (to plan an intent and to narrate the rows).
+vars: { d2-config: { layout-engine: elk } }
+direction: down
+
+det: "6a · Deterministic path" {
+  style.fill: "#DCF3E3"; style.stroke: "#A3D7B5"
+  cfg: "dashboard config\n(fixed metric + dims per visual)" {
+    style.fill: "#FFFFFF"; style.stroke: "#B4B4C6"; style.stroke-dash: 3; style.font-size: 12
+  }
+  svc: "MetricsService\napp/services/metrics.py" {
+    style.fill: "#FFFFFF"; style.stroke: "#B4B4C6"; style.stroke-dash: 3; style.font-size: 12
+  }
+  cfg -> svc
+}
+
+agent: "6b · Agentic path" {
+  style.fill: "#FCE3C8"; style.stroke: "#E7BB88"
+  q: "user question" {
+    style.fill: "#FFFFFF"; style.stroke: "#B4B4C6"; style.stroke-dash: 3; style.font-size: 12
+  }
+  plan: "LLM.plan_intent()\n(reads the semantic model)" {
+    style.fill: "#FFFFFF"; style.stroke: "#B4B4C6"; style.stroke-dash: 3; style.font-size: 12
+  }
+  narrate: "LLM.write_narrative()\n(grounded in the rows)" {
+    style.fill: "#FFFFFF"; style.stroke: "#B4B4C6"; style.stroke-dash: 3; style.font-size: 12
+  }
+  q -> plan
+}
+
+engine: "Query engine\n(shared)" { style.fill: "#FDF4D6"; style.stroke: "#E1CB80" }
+
+det.svc -> engine: QueryIntent
+agent.plan -> engine: QueryIntent
+engine -> det.svc: rows
+engine -> agent.narrate: rows
+det.svc -> out.d: "chart spec + values"
+agent.narrate -> out.a: "chart spec + narrative"
+
+out: "Result" {
+  style.fill: "#F4E2F8"; style.stroke: "#D5A9E4"
+  d: "dashboard visual"
+  a: "answer in chat + Key Insights"
+}

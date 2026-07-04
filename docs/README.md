@@ -8,6 +8,7 @@ This first MVP is a **custom replica of the KRW Analytics embedded experience**,
 
 ## Read in this order
 
+1. [`concepts.md`](./concepts.md) — the three ideas the architecture rests on (definitions-not-data, model is visual-independent, model is schema-bounded). Read first; they're not obvious from the code.
 1. [`spec.md`](./spec.md) — the MVP specification: goals, non-goals, scope, milestones.
 2. [`architecture.md`](./architecture.md) — components, boundaries, request/data flow.
 3. [`data-and-semantic-layer.md`](./data-and-semantic-layer.md) — how we read Azure SQL safely, and the semantic layer that makes NL querying trustworthy. **The main risk lives here.**

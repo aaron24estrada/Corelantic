@@ -1,0 +1,33 @@
+# Mapping A — heterogeneous sources normalize into ONE per-tenant canonical store.
+# This is where "we can't model every source" is handled: connectors, not the model.
+vars: { d2-config: { layout-engine: elk } }
+direction: right
+
+src: "Sources (per client)" {
+  style.fill: "#FDE2E4"; style.stroke: "#E6A6AB"
+  azure: "Azure SQL (KRW)"
+  crm: "LawRuler CRM API"
+  zoom: "Zoom API"
+  ads: "Ad / marketing APIs"
+  sheets: "Spreadsheets"
+}
+
+conn: "Connectors — Mapping A" {
+  style.fill: "#FFF1E0"; style.stroke: "#E6C596"
+  note: "each connector: extract → normalize →\nentity-resolve (link the same lead across sources)" {
+    style.fill: "#FFFFFF"; style.stroke: "#B4B4C6"; style.stroke-dash: 3; style.font-size: 12
+  }
+  krw: "KRW today = Imran's ETL\nfuture clients = app/adapters/connectors/*" {
+    style.fill: "#FFFFFF"; style.stroke: "#B4B4C6"; style.stroke-dash: 3; style.font-size: 12
+  }
+}
+
+store: "Canonical store\nper-tenant Postgres (one fixed schema)" {
+  style.fill: "#D9F0F3"; style.stroke: "#98D0D9"
+  t: "leads · referral_stages · marketing_spend · geo · dim_date" {
+    style.fill: "#FFFFFF"; style.stroke: "#B4B4C6"; style.stroke-dash: 3; style.font-size: 12
+  }
+}
+
+src -> conn: extract
+conn -> store: "load (normalized rows)"

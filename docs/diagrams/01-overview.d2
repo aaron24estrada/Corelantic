@@ -1,0 +1,29 @@
+# Corelantic — pipeline overview (source → visual). The map the other diagrams zoom into.
+vars: { d2-config: { layout-engine: elk } }
+direction: down
+
+classes: {
+  box: { style: { border-radius: 10; stroke-width: 2; font-size: 15; bold: true } }
+}
+
+s1: "1 · Sources" { class: box; style.fill: "#FDE2E4"; style.stroke: "#E6A6AB" }
+s2: "2 · Ingestion — Mapping A" { class: box; style.fill: "#FFF1E0"; style.stroke: "#E6C596" }
+s3: "3 · Canonical store (Postgres)" { class: box; style.fill: "#D9F0F3"; style.stroke: "#98D0D9" }
+s4: "4 · Semantic model — Mapping B" { class: box; style.fill: "#E7E0FB"; style.stroke: "#BBA9E6" }
+s5: "5 · Query engine (trust boundary)" { class: box; style.fill: "#FDF4D6"; style.stroke: "#E1CB80" }
+s6a: "6a · Deterministic path" { class: box; style.fill: "#DCF3E3"; style.stroke: "#A3D7B5" }
+s6b: "6b · Agentic path" { class: box; style.fill: "#FCE3C8"; style.stroke: "#E7BB88" }
+s7: "7 · API + BFF" { class: box; style.fill: "#E7E8F2"; style.stroke: "#B4B7D2" }
+s8: "8 · Presentation — visuals" { class: box; style.fill: "#F4E2F8"; style.stroke: "#D5A9E4" }
+ctl: "Global controls\ngrain · date filter" { class: box; style.fill: "#FBE0E6"; style.stroke: "#E4A2B4" }
+
+s1 -> s2: extract
+s2 -> s3: "normalize + load"
+s3 -> s4: bind
+s4 -> s5: model
+s5 -> s6a
+s5 -> s6b
+s6a -> s7
+s6b -> s7
+s7 -> s8: render
+ctl -> s5: "applied to every intent" { style.stroke-dash: 4 }

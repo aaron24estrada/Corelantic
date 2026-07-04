@@ -1,0 +1,215 @@
+# Corelantic — full data flow, source to visual
+# Grounded in the KRW Revenue Intelligence Dashboard.
+# Compile: d2 data-flow.d2 data-flow.svg   (ELK layout is pinned below)
+
+vars: {
+  d2-config: {
+    layout-engine: elk
+  }
+}
+
+direction: down
+
+classes: {
+  layer: {
+    style: {
+      border-radius: 14
+      stroke-width: 2
+      font-size: 17
+      bold: true
+    }
+  }
+  code: {
+    style: {
+      fill: "#FFFFFF"
+      stroke: "#B4B4C6"
+      border-radius: 6
+      stroke-dash: 3
+      font-size: 13
+      bold: false
+    }
+  }
+}
+
+controls: "Global controls (top of report)" {
+  class: layer
+  style.fill: "#FBE0E6"
+  style.stroke: "#E4A2B4"
+  trend: "Trend level = Monthly  →  grain = month" { class: code }
+  daterange: "Date range 1/1/23 – 7/3/26  →  date filter" { class: code }
+}
+
+src: "1 · Sources — heterogeneous, per client" {
+  class: layer
+  style.fill: "#FDE2E4"
+  style.stroke: "#E6A6AB"
+  azure: "Azure SQL (KRW)"
+  crm: "LawRuler CRM API"
+  zoom: "Zoom API"
+  ads: "Ad / marketing APIs"
+  sheets: "Spreadsheets"
+}
+
+ingest: "2 · Ingestion — MAPPING A (per-source connectors)" {
+  class: layer
+  style.fill: "#FFF1E0"
+  style.stroke: "#E6C596"
+  note: "normalize + entity-resolve each source into the canonical schema\nKRW today: Imran's ETL.  Future clients: our connectors." { class: code }
+  conn: "app/adapters/connectors/*  (future)" { class: code }
+}
+
+store: "3 · Canonical store — per-tenant Postgres (read-only role)" {
+  class: layer
+  style.fill: "#D9F0F3"
+  style.stroke: "#98D0D9"
+  leads: leads {
+    shape: sql_table
+    lead_id: uuid
+    create_date: date
+    channel: text
+    state: text
+    tenant_id: uuid
+  }
+  stages: referral_stages {
+    shape: sql_table
+    lead_id: uuid
+    stage_name: text
+    stage_order: int
+    date_completed: date
+  }
+  spend: marketing_spend {
+    shape: sql_table
+    date: date
+    channel: text
+    amount: numeric
+  }
+  geo: geo {
+    shape: sql_table
+    lead_id: uuid
+    state: text
+    lat: float
+    lon: float
+  }
+  dim_date: dim_date {
+    shape: sql_table
+    date: date
+    week_start: date
+    month_start: date
+  }
+}
+
+sem: "4 · Semantic model — MAPPING B (in-house, authored once)" {
+  class: layer
+  style.fill: "#E7E0FB"
+  style.stroke: "#BBA9E6"
+  file: "app/semantic — registry.py + semantic/*.yaml" { class: code }
+
+  Entity: {
+    shape: class
+    name: str
+    table: str
+  }
+  Dimension: {
+    shape: class
+    name: str
+    column: str
+    grain: week_or_month
+  }
+  Measure: {
+    shape: class
+    name: str
+    agg: sum_or_count
+  }
+  Metric: {
+    shape: class
+    name: str
+    type: simple_ratio_comparison_conversion
+    expr: str
+  }
+  Entity -> Dimension: has
+  Entity -> Measure: has
+  Measure -> Metric: derives
+}
+
+engine: "5 · Query engine — the trust boundary" {
+  class: layer
+  style.fill: "#FDF4D6"
+  style.stroke: "#E1CB80"
+  Intent: QueryIntent {
+    shape: class
+    metric: str
+    group_by: list_str
+    filters: dict
+    grain: str
+  }
+  compiler: "compile_query()\napp/query/compiler.py → SQLAlchemy Core" { class: code }
+  ds: "DataSource\napp/adapters/data (read-only)" { class: code }
+  Intent -> compiler
+  compiler -> ds: parameterized SQL
+}
+
+det: "6a · Deterministic path" {
+  class: layer
+  style.fill: "#DCF3E3"
+  style.stroke: "#A3D7B5"
+  cfg: "dashboard config → fixed intents (no LLM)" { class: code }
+  svc: "MetricsService\napp/services/metrics.py" { class: code }
+  cfg -> svc
+}
+
+agent: "6b · Agentic path" {
+  class: layer
+  style.fill: "#FCE3C8"
+  style.stroke: "#E7BB88"
+  orch: "Orchestrator\napp/services/agent/orchestrator.py" { class: code }
+  llm: "LLMProvider\nplan_intent() · write_narrative()" { class: code }
+  orch -> llm: plan / narrate
+}
+
+api: "7 · API + BFF" {
+  class: layer
+  style.fill: "#E7E8F2"
+  style.stroke: "#B4B7D2"
+  routes: "FastAPI /api/v1/metrics · /nlq/ask\ninternal-key auth · request-id logs" { class: code }
+  bff: "Next.js server client + /api/bff proxy\napps/web/src/lib/api" { class: code }
+  routes -> bff
+}
+
+viz: "8 · Presentation — KRW Revenue Intelligence Dashboard" {
+  class: layer
+  style.fill: "#F4E2F8"
+  style.stroke: "#D5A9E4"
+  kpi: "KPI tiles: Leads · Voucher · Spend · Revenue · ROAS  (+ WoW Δ + sparkline)"
+  trends: "Trends: Leads vs Spend vs Revenue (combo, monthly)"
+  funnel: "Milestone funnel (Lead → … → Bank Complete)"
+  leadmap: "Leads by source (US map)"
+  bystate: "Where are leads coming from? (bar by state)"
+  bubble: "Channels optimizing conversion (bubble)"
+  bychannel: "What channels generate leads? (bar)"
+  insights: "Key Insights (LLM narrative)" {
+    style.fill: "#FCE3C8"
+    style.stroke: "#E7BB88"
+  }
+}
+
+# ---------- flow ----------
+src -> ingest: extract
+ingest -> store: "normalize + load  (MAPPING A)"
+store -> sem: "bind columns → business concepts  (MAPPING B)"
+
+controls -> engine: "grain + date filter\napplied to every intent" { style.stroke-dash: 4 }
+
+det -> engine: intents
+agent -> engine: planned intent
+sem -> agent: "agent reads the model to plan" { style.stroke-dash: 4 }
+
+engine -> store: read-only SQL
+store -> engine: rows
+
+engine -> det: rows
+engine -> agent: rows
+
+det -> api: metric results
+agent -> api: "narrative + chart spec"
+api -> viz: "chart spec (shared Chart)"
+agent -> viz.insights: narrative { style.stroke-dash: 4 }

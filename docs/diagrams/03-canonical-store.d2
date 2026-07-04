@@ -1,0 +1,53 @@
+# Canonical store — the per-tenant Postgres schema the semantic model binds to.
+# A small star schema: facts join to the lead and to the date dimension.
+vars: { d2-config: { layout-engine: elk } }
+direction: right
+
+leads: leads {
+  shape: sql_table
+  style.fill: "#D9F0F3"
+  lead_id: uuid {constraint: primary_key}
+  create_date: date
+  channel: text
+  state: text
+  tenant_id: uuid
+}
+
+referral_stages: referral_stages {
+  shape: sql_table
+  style.fill: "#D9F0F3"
+  lead_id: uuid {constraint: foreign_key}
+  stage_name: text
+  stage_order: int
+  date_completed: date
+}
+
+geo: geo {
+  shape: sql_table
+  style.fill: "#D9F0F3"
+  lead_id: uuid {constraint: foreign_key}
+  state: text
+  lat: float
+  lon: float
+}
+
+marketing_spend: marketing_spend {
+  shape: sql_table
+  style.fill: "#D9F0F3"
+  date: date {constraint: foreign_key}
+  channel: text
+  amount: numeric
+}
+
+dim_date: dim_date {
+  shape: sql_table
+  style.fill: "#EAF7F9"
+  date: date {constraint: primary_key}
+  week_start: date
+  month_start: date
+}
+
+leads.lead_id -> referral_stages.lead_id: 1..n
+leads.lead_id -> geo.lead_id: "1..1"
+leads.create_date -> dim_date.date: on
+marketing_spend.date -> dim_date.date: on
