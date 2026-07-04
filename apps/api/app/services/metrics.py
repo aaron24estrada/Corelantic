@@ -16,5 +16,5 @@ class MetricsService:
         self._data_source = data_source
 
     async def compute(self, intent: QueryIntent) -> list[dict[str, object]]:
-        compiled = compile_query(intent, self._registry)
-        return await self._data_source.run(compiled.sql, compiled.params)
+        statement = compile_query(intent, self._registry)
+        return await self._data_source.run(statement)
