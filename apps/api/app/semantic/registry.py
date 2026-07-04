@@ -3,11 +3,12 @@
 Each YAML file contributes entities, dimensions, measures, and metrics keyed by name;
 the key is the identifier, so it is injected as the model's ``name``. Loading stays
 simple and pure enough to unit-test: ``build_registry`` constructs from parsed data,
-``validate_registry`` checks the references between the four types resolve, and
+``validate_registry`` checks the references between the types resolve, and
 ``load_registry`` adds only the file IO around them.
 
-References are validated after the cross-file merge, not per file, so a dimension in
-one file may point at an entity defined in another.
+A metric's ``type`` selects its variant (defaulting to ``simple`` when omitted, so plain
+one-measure definitions stay terse). References are validated after the cross-file merge,
+not per file, so a dimension or measure in one file may point at an entity in another.
 """
 
 from pathlib import Path
@@ -15,7 +16,20 @@ from typing import Any
 
 import yaml
 
-from app.semantic.models import Dimension, Entity, Measure, Metric, SemanticRegistry
+from app.semantic.models import (
+    METRIC_ADAPTER,
+    Dimension,
+    Entity,
+    Measure,
+    Metric,
+    MetricType,
+    SemanticRegistry,
+)
+from app.semantic.resolve import resolve_metric_entity
+
+
+def _build_metric(name: str, body: dict[str, Any]) -> Metric:
+    return METRIC_ADAPTER.validate_python({"type": MetricType.SIMPLE, **body, "name": name})
 
 
 def build_registry(raw: dict[str, Any]) -> SemanticRegistry:
@@ -27,16 +41,16 @@ def build_registry(raw: dict[str, Any]) -> SemanticRegistry:
         entities={name: Entity(name=name, **body) for name, body in raw_entities.items()},
         dimensions={name: Dimension(name=name, **body) for name, body in raw_dimensions.items()},
         measures={name: Measure(name=name, **body) for name, body in raw_measures.items()},
-        metrics={name: Metric(name=name, **body) for name, body in raw_metrics.items()},
+        metrics={name: _build_metric(name, body) for name, body in raw_metrics.items()},
     )
 
 
 def validate_registry(registry: SemanticRegistry) -> SemanticRegistry:
-    """Raise if any reference between the four types dangles; return the registry.
+    """Raise if any reference between the types dangles; return the registry.
 
-    Fail loud at load: a metric pointing at a missing measure, or a dimension/measure at
-    a missing entity, is an authoring bug we surface now rather than at query time. This
-    is the schema-bounded guarantee the compiler and agent rely on (docs/concepts.md §3).
+    Fail loud at load: a dimension/measure pointing at a missing entity, or a metric at a
+    missing (or cross-entity) measure, is an authoring bug we surface now rather than at
+    query time. This is the schema-bounded guarantee from docs/concepts.md §3.
     """
 
     for dimension in registry.dimensions.values():
@@ -44,7 +58,8 @@ def validate_registry(registry: SemanticRegistry) -> SemanticRegistry:
     for measure in registry.measures.values():
         registry.entity(measure.entity)
     for metric in registry.metrics.values():
-        registry.measure(metric.measure)
+        # Resolves every component measure and confirms they share one entity.
+        resolve_metric_entity(metric, registry)
     return registry
 
 
