@@ -80,11 +80,18 @@ class Aggregation(StrEnum):
 
 
 class JoinEdge(SemanticModel):
-    """A key relationship from one entity to another, an edge in the join graph."""
+    """A key relationship from one entity to another, an edge in the join graph.
+
+    The compiler joins the dimension table in *before* aggregating, so an edge is expected
+    to be many-to-one from the fact side — the target is a conformed dimension unique on
+    its join key (geo, dim_date). A one-to-many edge would fan out and inflate the fact's
+    measures; handling that safely (cardinality-aware pre-aggregation) is a follow-up, so
+    for now only declare many-to-one/one-to-one edges.
+    """
 
     to: str = Field(description="Name of the entity this edge joins to.")
     left: str = Field(description="Join-key column on this entity.")
-    right: str = Field(description="Join-key column on the target entity.")
+    right: str = Field(description="Join-key column on the target entity (unique per row).")
 
 
 class Entity(SemanticModel):
@@ -103,7 +110,9 @@ class Dimension(SemanticModel):
     name: str = Field(description="Stable identifier, referenced by intents and visuals.")
     label: str = Field(description="Human-readable label for display.")
     entity: str = Field(description="Name of the entity this dimension is read from.")
-    column: str = Field(description="Column (or expression) on the entity that holds the value.")
+    column: str = Field(
+        description="Column on the entity that holds the value; an identifier, bound to its table."
+    )
     date_role: str | None = Field(
         default=None,
         description=(
