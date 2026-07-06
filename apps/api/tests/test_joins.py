@@ -2,7 +2,7 @@ import pytest
 
 from app.semantic.errors import NoJoinPathError
 from app.semantic.joins import JoinStep, find_join_path
-from app.semantic.models import Entity, JoinEdge, SemanticRegistry
+from app.semantic.models import Cardinality, Entity, JoinEdge, SemanticRegistry
 
 
 def _registry() -> SemanticRegistry:
@@ -54,3 +54,33 @@ def test_edges_traverse_in_reverse() -> None:
 def test_no_path_raises() -> None:
     with pytest.raises(NoJoinPathError):
         find_join_path("leads", "stages", _registry())
+
+
+def test_many_to_one_fans_out_only_backward() -> None:
+    # leads → geo is the default many-to-one (fact → dimension).
+    registry = _registry()
+    assert find_join_path("leads", "geo", registry)[0].fans_out is False  # joining the dim
+    assert find_join_path("geo", "leads", registry)[0].fans_out is True  # joining the fact
+
+
+def test_one_to_many_fans_out_forward() -> None:
+    registry = SemanticRegistry(
+        entities={
+            "leads": Entity(
+                name="leads",
+                label="Leads",
+                source="v_leads",
+                joins=[
+                    JoinEdge(
+                        to="events",
+                        left="lead_id",
+                        right="lead_id",
+                        cardinality=Cardinality.ONE_TO_MANY,
+                    )
+                ],
+            ),
+            "events": Entity(name="events", label="Events", source="v_events"),
+        }
+    )
+    assert find_join_path("leads", "events", registry)[0].fans_out is True
+    assert find_join_path("events", "leads", registry)[0].fans_out is False

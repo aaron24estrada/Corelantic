@@ -8,32 +8,41 @@ side of the one-way ``query → semantic`` dependency.
 """
 
 from collections import deque
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from app.semantic.errors import NoJoinPathError
-from app.semantic.models import SemanticRegistry
+from app.semantic.models import Cardinality, SemanticRegistry
 
 
 @dataclass(frozen=True)
 class JoinStep:
-    """One hop: join ``to_entity`` on ``from_entity.from_column == to_entity.to_column``."""
+    """One hop: join ``to_entity`` on ``from_entity.from_column == to_entity.to_column``.
+
+    ``fans_out`` is derived from the edge's cardinality — True when joining ``to_entity``
+    yields many rows per ``from_entity`` row. It is metadata, not identity, so it is
+    excluded from equality (a step is the same hop regardless).
+    """
 
     from_entity: str
     from_column: str
     to_entity: str
     to_column: str
+    fans_out: bool = field(default=False, compare=False)
 
 
 def _adjacency(registry: SemanticRegistry) -> dict[str, list[JoinStep]]:
     graph: dict[str, list[JoinStep]] = {}
     for entity in registry.entities.values():
         for edge in entity.joins:
-            # An edge is traversable in both directions.
+            # An edge is traversable both ways; a hop fans out when the direction lands on
+            # the "many" side: forward for one_to_many, backward for many_to_one.
+            forward_fans_out = edge.cardinality is Cardinality.ONE_TO_MANY
+            backward_fans_out = edge.cardinality is Cardinality.MANY_TO_ONE
             graph.setdefault(entity.name, []).append(
-                JoinStep(entity.name, edge.left, edge.to, edge.right)
+                JoinStep(entity.name, edge.left, edge.to, edge.right, fans_out=forward_fans_out)
             )
             graph.setdefault(edge.to, []).append(
-                JoinStep(edge.to, edge.right, entity.name, edge.left)
+                JoinStep(edge.to, edge.right, entity.name, edge.left, fans_out=backward_fans_out)
             )
     return graph
 

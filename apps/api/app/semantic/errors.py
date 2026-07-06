@@ -111,6 +111,24 @@ class NoJoinPathError(SemanticError):
         self.target = target
 
 
+class JoinFanOutError(SemanticError):
+    """A required join is one-to-many and would inflate the fact's measures.
+
+    The compiler joins before aggregating, so joining a table with many rows per fact row
+    multiplies the fact rows — inflating count(*), sum(...), and every metric built on
+    them. Until cardinality-aware aggregation lands, such a join is rejected rather than
+    silently returning wrong numbers.
+    """
+
+    def __init__(self, from_entity: str, to_entity: str) -> None:
+        super().__init__(
+            f"Joining {to_entity!r} onto {from_entity!r} is one-to-many; it would inflate "
+            f"the fact's measures. Declare the edge's cardinality or avoid this join."
+        )
+        self.from_entity = from_entity
+        self.to_entity = to_entity
+
+
 class UnknownDimensionError(SemanticError):
     def __init__(self, name: str) -> None:
         super().__init__(f"Unknown dimension: {name!r}.")
