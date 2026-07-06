@@ -19,6 +19,7 @@ from pydantic import BaseModel, Field, model_validator
 from sqlalchemy import Date
 from sqlalchemy.ext.compiler import compiles
 from sqlalchemy.sql.expression import ColumnElement
+from sqlalchemy.sql.visitors import InternalTraversal
 
 
 class Grain(StrEnum):
@@ -30,9 +31,17 @@ class Grain(StrEnum):
 
 
 class DateBucket(ColumnElement[Any]):
-    """Truncate a date expression to the start of its ``grain`` period."""
+    """Truncate a date expression to the start of its ``grain`` period.
 
-    inherit_cache = True
+    ``_traverse_internals`` makes ``grain`` and ``date_expr`` part of the construct's
+    cache key and reachable by SQLAlchemy visitors — without it, statement caching could
+    reuse one grain's compiled SQL for another (a week bucket served as a month bucket).
+    """
+
+    _traverse_internals = [  # noqa: RUF012  (SQLAlchemy declares this instance-level)
+        ("grain", InternalTraversal.dp_string),
+        ("date_expr", InternalTraversal.dp_clauseelement),
+    ]
 
     def __init__(self, grain: Grain, date_expr: ColumnElement[Any]) -> None:
         self.grain = grain

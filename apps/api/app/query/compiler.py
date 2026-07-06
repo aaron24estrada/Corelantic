@@ -18,6 +18,7 @@ bucket in a subquery, then a window function turns those buckets into a running 
 adapter. Scope is a single entity; cross-entity joins are B3.
 """
 
+from datetime import timedelta
 from typing import Any
 
 from sqlalchemy import (
@@ -136,6 +137,10 @@ def _window_value(
     partition = [sub.c[d.name] for d in group_dimensions]
 
     if isinstance(metric, ComparisonMetric):
+        # LAG compares to the previous *populated* bucket. With continuous data (daily
+        # leads/spend) that is the prior calendar period; a fully empty week/month has no
+        # row and would be skipped. Closing that gap needs a calendar spine joined to the
+        # buckets — a DimDate join, which arrives with B3.
         prior = func.lag(value).over(partition_by=partition, order_by=period)
         if metric.kind == "pct":
             return safe_divide(value - prior, prior)
@@ -202,7 +207,9 @@ def _range_conditions(date_dimension: Dimension, date_range: DateRange) -> list[
     if date_range.start is not None:
         conditions.append(date_column >= date_range.start)
     if date_range.end is not None:
-        conditions.append(date_column <= date_range.end)
+        # Half-open upper bound: `< end + 1 day` includes all of the end date even when the
+        # column is a timestamp (a plain `<= end` would drop rows after midnight that day).
+        conditions.append(date_column < date_range.end + timedelta(days=1))
     return conditions
 
 

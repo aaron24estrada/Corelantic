@@ -234,11 +234,13 @@ def test_date_range_binds_both_bounds() -> None:
         metric="new_leads", date_range=DateRange(start=date(2026, 1, 1), end=date(2026, 6, 30))
     )
     sql, params = _rendered(compile_query(intent, _registry()))
+    # Upper bound is half-open (< end + 1 day) so a timestamp column still includes all
+    # of the end date.
     assert sql == (
         "SELECT count(*) AS new_leads FROM analytics.v_leads "
-        "WHERE created_at >= :created_at_1 AND created_at <= :created_at_2"
+        "WHERE created_at >= :created_at_1 AND created_at < :created_at_2"
     )
-    assert set(params.values()) == {date(2026, 1, 1), date(2026, 6, 30)}
+    assert set(params.values()) == {date(2026, 1, 1), date(2026, 7, 1)}
 
 
 def test_open_ended_range_binds_one_bound() -> None:
