@@ -61,6 +61,42 @@ class MixedEntityError(SemanticError):
         self.entities = entities
 
 
+class DuplicateNameError(SemanticError):
+    """The same name is defined twice — across files, or as a repeated YAML key.
+
+    Names are identifiers; a silent last-writer-wins merge (or pyyaml keeping the last of
+    two duplicate keys) would hide one definition. A duplicate is an authoring mistake we
+    surface at load rather than silently drop.
+    """
+
+    def __init__(self, kind: str, name: str) -> None:
+        super().__init__(f"Duplicate {kind} {name!r}.")
+        self.kind = kind
+        self.name = name
+
+
+class MalformedRegistryError(SemanticError):
+    """A registry file is not the expected shape (a mapping of collections of definitions)."""
+
+    def __init__(self, reason: str) -> None:
+        super().__init__(f"Malformed registry: {reason}.")
+        self.reason = reason
+
+
+class AmbiguousTermError(SemanticError):
+    """A name or synonym would match more than one metric (or dimension).
+
+    Synonyms exist so the agent can map natural language to one definition; a term that
+    resolves to two is not usable for matching and is rejected at load.
+    """
+
+    def __init__(self, kind: str, term: str, names: list[str]) -> None:
+        super().__init__(f"Term {term!r} matches more than one {kind}: {names}.")
+        self.kind = kind
+        self.term = term
+        self.names = names
+
+
 class NoJoinPathError(SemanticError):
     """No sequence of declared join edges connects two entities.
 

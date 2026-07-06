@@ -1,7 +1,7 @@
 API := apps/api
 WEB := apps/web
 
-.PHONY: install hooks dev-api dev-web lint format typecheck test check client
+.PHONY: install hooks dev-api dev-web lint format typecheck test check client validate
 
 install:
 	uv sync --directory $(API)
@@ -36,5 +36,9 @@ typecheck:
 
 test:
 	uv run --directory $(API) pytest
+
+# Validate the semantic registry (references, formulas, joins, synonyms, duplicates).
+validate:
+	uv run --directory $(API) python scripts/validate_registry.py
 
 check: lint typecheck test
