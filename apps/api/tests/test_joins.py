@@ -2,7 +2,7 @@ import pytest
 
 from app.semantic.errors import NoJoinPathError
 from app.semantic.joins import JoinStep, find_join_path
-from app.semantic.models import Entity, JoinEdge, SemanticRegistry
+from app.semantic.models import Cardinality, Entity, JoinEdge, SemanticRegistry
 
 
 def _registry() -> SemanticRegistry:
@@ -54,3 +54,60 @@ def test_edges_traverse_in_reverse() -> None:
 def test_no_path_raises() -> None:
     with pytest.raises(NoJoinPathError):
         find_join_path("leads", "stages", _registry())
+
+
+def test_many_to_one_fans_out_only_backward() -> None:
+    # leads → geo is the default many-to-one (fact → dimension).
+    registry = _registry()
+    assert find_join_path("leads", "geo", registry)[0].fans_out is False  # joining the dim
+    assert find_join_path("geo", "leads", registry)[0].fans_out is True  # joining the fact
+
+
+def test_one_to_many_fans_out_forward() -> None:
+    registry = SemanticRegistry(
+        entities={
+            "leads": Entity(
+                name="leads",
+                label="Leads",
+                source="v_leads",
+                joins=[
+                    JoinEdge(
+                        to="events",
+                        left="lead_id",
+                        right="lead_id",
+                        cardinality=Cardinality.ONE_TO_MANY,
+                    )
+                ],
+            ),
+            "events": Entity(name="events", label="Events", source="v_events"),
+        }
+    )
+    assert find_join_path("leads", "events", registry)[0].fans_out is True
+    assert find_join_path("events", "leads", registry)[0].fans_out is False
+
+
+def test_prefers_a_fan_out_free_path_over_a_shorter_fan_out_one() -> None:
+    # A → B is a direct one-to-many (fans out); A → C → B is all many-to-one (safe).
+    registry = SemanticRegistry(
+        entities={
+            "a": Entity(
+                name="a",
+                label="A",
+                source="va",
+                joins=[
+                    JoinEdge(to="b", left="k", right="k", cardinality=Cardinality.ONE_TO_MANY),
+                    JoinEdge(to="c", left="ck", right="ck"),
+                ],
+            ),
+            "c": Entity(
+                name="c",
+                label="C",
+                source="vc",
+                joins=[JoinEdge(to="b", left="bk", right="bk")],
+            ),
+            "b": Entity(name="b", label="B", source="vb"),
+        }
+    )
+    path = find_join_path("a", "b", registry)
+    assert [step.to_entity for step in path] == ["c", "b"]  # the safe 2-hop route
+    assert not any(step.fans_out for step in path)

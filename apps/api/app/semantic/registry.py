@@ -17,7 +17,12 @@ from typing import Any
 
 import yaml
 
-from app.semantic.errors import AmbiguousTermError, DuplicateNameError, MalformedRegistryError
+from app.semantic.errors import (
+    AmbiguousTermError,
+    DuplicateJoinError,
+    DuplicateNameError,
+    MalformedRegistryError,
+)
 from app.semantic.formula import validate_formula
 from app.semantic.models import (
     METRIC_ADAPTER,
@@ -124,8 +129,12 @@ def validate_registry(registry: SemanticRegistry) -> SemanticRegistry:
     """
 
     for entity in registry.entities.values():
+        targets: set[str] = set()
         for edge in entity.joins:
             registry.entity(edge.to)  # a join edge must point at a real entity
+            if edge.to in targets:  # one relationship per entity pair (no named roles yet)
+                raise DuplicateJoinError(entity.name, edge.to)
+            targets.add(edge.to)
     for dimension in registry.dimensions.values():
         registry.entity(dimension.entity)
     for measure in registry.measures.values():

@@ -36,6 +36,7 @@ from app.query.errors import DateDimensionError
 from app.query.formula import build_formula, safe_divide
 from app.query.intent import QueryIntent
 from app.query.time import DateBucket, DateRange, Grain
+from app.semantic.errors import JoinFanOutError
 from app.semantic.joins import JoinStep, find_join_path
 from app.semantic.models import (
     Aggregation,
@@ -183,6 +184,10 @@ def _build_plan(base: str, references: dict[str, set[str]], registry: SemanticRe
     seen: set[tuple[str, str, str, str]] = set()
     for entity in list(columns):
         for step in find_join_path(base, entity, registry):
+            if step.fans_out:
+                # Joining before aggregation would multiply the fact rows and inflate the
+                # metric; reject rather than return silently-wrong numbers.
+                raise JoinFanOutError(step.from_entity, step.to_entity)
             key = (step.from_entity, step.from_column, step.to_entity, step.to_column)
             if key not in seen:
                 seen.add(key)

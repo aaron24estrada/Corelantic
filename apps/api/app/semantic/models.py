@@ -85,19 +85,31 @@ class Aggregation(StrEnum):
     MAX = "max"
 
 
+class Cardinality(StrEnum):
+    """How many rows on each side of a join edge, from the declaring entity to ``to``."""
+
+    MANY_TO_ONE = "many_to_one"  # many of this entity per one target (fact → dimension)
+    ONE_TO_ONE = "one_to_one"
+    ONE_TO_MANY = "one_to_many"  # one of this entity per many targets (fans out)
+
+
 class JoinEdge(SemanticModel):
     """A key relationship from one entity to another, an edge in the join graph.
 
-    The compiler joins the dimension table in *before* aggregating, so an edge is expected
-    to be many-to-one from the fact side — the target is a conformed dimension unique on
-    its join key (geo, dim_date). A one-to-many edge would fan out and inflate the fact's
-    measures; handling that safely (cardinality-aware pre-aggregation) is a follow-up, so
-    for now only declare many-to-one/one-to-one edges.
+    The compiler joins a table in *before* aggregating, so joining a table that has many
+    rows per fact row would fan out and inflate the fact's measures. ``cardinality`` (from
+    the declaring entity to ``to``) lets the compiler detect that: many-to-one/one-to-one
+    edges join safely, and a join that would fan out is rejected rather than silently
+    wrong. Cardinality-aware aggregation to make fan-out joins compile is a later step.
     """
 
     to: str = Field(description="Name of the entity this edge joins to.")
     left: str = Field(description="Join-key column on this entity.")
-    right: str = Field(description="Join-key column on the target entity (unique per row).")
+    right: str = Field(description="Join-key column on the target entity.")
+    cardinality: Cardinality = Field(
+        default=Cardinality.MANY_TO_ONE,
+        description="Row relationship from this entity to the target (default fact→dimension).",
+    )
 
 
 class Entity(SemanticModel):

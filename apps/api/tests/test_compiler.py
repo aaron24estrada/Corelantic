@@ -10,6 +10,7 @@ from app.query.intent import QueryIntent
 from app.query.time import DateRange, Grain
 from app.semantic.errors import (
     InvalidFormulaError,
+    JoinFanOutError,
     MixedEntityError,
     NoJoinPathError,
     UnknownDimensionError,
@@ -17,6 +18,7 @@ from app.semantic.errors import (
 )
 from app.semantic.models import (
     Aggregation,
+    Cardinality,
     ComparisonMetric,
     ComparisonPeriod,
     CumulativeMetric,
@@ -40,9 +42,18 @@ def _registry() -> SemanticRegistry:
                 name="leads",
                 label="Leads",
                 source="analytics.v_leads",
-                joins=[JoinEdge(to="geo", left="lead_id", right="lead_id")],
+                joins=[
+                    JoinEdge(to="geo", left="lead_id", right="lead_id"),
+                    JoinEdge(
+                        to="stages",
+                        left="lead_id",
+                        right="lead_id",
+                        cardinality=Cardinality.ONE_TO_MANY,
+                    ),
+                ],
             ),
             "geo": Entity(name="geo", label="Geo", source="analytics.v_geo"),
+            "stages": Entity(name="stages", label="Stages", source="analytics.v_stages"),
             "cases": Entity(name="cases", label="Cases", source="analytics.v_cases"),
         },
         measures={
@@ -124,6 +135,9 @@ def _registry() -> SemanticRegistry:
                 column="created_at",
                 date_role="lead",
             ),
+            "stage_name": Dimension(
+                name="stage_name", label="Stage", entity="stages", column="name"
+            ),
             "attorney": Dimension(
                 name="attorney", label="Attorney", entity="cases", column="attorney"
             ),
@@ -197,6 +211,12 @@ def test_dimension_with_no_join_path_raises() -> None:
     # cases has no join edge to leads.
     with pytest.raises(NoJoinPathError):
         compile_query(QueryIntent(metric="new_leads", group_by=["attorney"]), _registry())
+
+
+def test_one_to_many_join_is_rejected_to_avoid_fan_out() -> None:
+    # leads → stages is one-to-many; joining it would inflate count(*), so reject it.
+    with pytest.raises(JoinFanOutError):
+        compile_query(QueryIntent(metric="new_leads", group_by=["stage_name"]), _registry())
 
 
 # --- ratio / derived ------------------------------------------------------------------
