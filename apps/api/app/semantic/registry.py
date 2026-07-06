@@ -55,6 +55,9 @@ def validate_registry(registry: SemanticRegistry) -> SemanticRegistry:
     query time. This is the schema-bounded guarantee from docs/concepts.md §3.
     """
 
+    for entity in registry.entities.values():
+        for edge in entity.joins:
+            registry.entity(edge.to)  # a join edge must point at a real entity
     for dimension in registry.dimensions.values():
         registry.entity(dimension.entity)
     for measure in registry.measures.values():

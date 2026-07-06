@@ -4,7 +4,14 @@ from fastapi.testclient import TestClient
 from app.api.dependencies import get_registry
 from app.core.config import Settings, get_settings
 from app.main import create_app
-from app.semantic.models import Dimension, Entity, Measure, SemanticRegistry, SimpleMetric
+from app.semantic.models import (
+    Aggregation,
+    Dimension,
+    Entity,
+    Measure,
+    SemanticRegistry,
+    SimpleMetric,
+)
 
 INTERNAL_KEY = "test-internal-key"
 
@@ -14,7 +21,7 @@ def registry() -> SemanticRegistry:
     return SemanticRegistry(
         entities={"leads": Entity(name="leads", label="Leads", source="analytics.v_leads")},
         measures={
-            "lead_count": Measure(name="lead_count", entity="leads", expression="count(*)"),
+            "lead_count": Measure(name="lead_count", entity="leads", agg=Aggregation.COUNT),
         },
         metrics={
             "new_leads": SimpleMetric(

@@ -47,17 +47,32 @@ class InvalidFormulaError(SemanticError):
 class MixedEntityError(SemanticError):
     """A metric's component measures live on more than one entity.
 
-    Ratio and derived metrics compose measures; the MVP engine computes them over a
-    single entity. Combining measures across entities needs join resolution (B3).
+    Ratio and derived metrics compose measures; a metric aggregates one fact entity.
+    Combining measures from different entities is not something a single metric expresses
+    (join dimensions in, rather than measures across facts).
     """
 
     def __init__(self, metric: str, entities: list[str]) -> None:
         super().__init__(
             f"Metric {metric!r} combines measures across entities {entities}; "
-            f"single-entity only (joins are B3)."
+            f"a metric aggregates a single entity."
         )
         self.metric = metric
         self.entities = entities
+
+
+class NoJoinPathError(SemanticError):
+    """No sequence of declared join edges connects two entities.
+
+    A dimension on a different entity than the metric's is reached by joining along the
+    entities' declared key edges. When the graph has no path between them, the query
+    cannot be expressed — the entities are simply not related in the model.
+    """
+
+    def __init__(self, base: str, target: str) -> None:
+        super().__init__(f"No join path from entity {base!r} to {target!r}.")
+        self.base = base
+        self.target = target
 
 
 class UnknownDimensionError(SemanticError):

@@ -21,7 +21,7 @@ us; they are the trusted side of the SQL trust boundary (see app/query/compiler.
 from enum import StrEnum
 from typing import Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, TypeAdapter
+from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, model_validator
 
 from app.semantic.errors import (
     UnknownDimensionError,
@@ -71,19 +71,48 @@ class ComparisonPeriod(StrEnum):
     MOM = "mom"
 
 
+class Aggregation(StrEnum):
+    COUNT = "count"
+    SUM = "sum"
+    AVG = "avg"
+    MIN = "min"
+    MAX = "max"
+
+
+class JoinEdge(SemanticModel):
+    """A key relationship from one entity to another, an edge in the join graph.
+
+    The compiler joins the dimension table in *before* aggregating, so an edge is expected
+    to be many-to-one from the fact side — the target is a conformed dimension unique on
+    its join key (geo, dim_date). A one-to-many edge would fan out and inflate the fact's
+    measures; handling that safely (cardinality-aware pre-aggregation) is a follow-up, so
+    for now only declare many-to-one/one-to-one edges.
+    """
+
+    to: str = Field(description="Name of the entity this edge joins to.")
+    left: str = Field(description="Join-key column on this entity.")
+    right: str = Field(description="Join-key column on the target entity (unique per row).")
+
+
 class Entity(SemanticModel):
     """A queryable table or view — the one place a physical binding lives."""
 
     name: str = Field(description="Stable identifier, referenced by dimensions and measures.")
     label: str = Field(description="Human-readable label for display.")
     source: str = Field(description="Physical table or view this entity binds to.")
+    joins: list[JoinEdge] = Field(
+        default_factory=list,
+        description="Key relationships to other entities; edges the compiler joins along.",
+    )
 
 
 class Dimension(SemanticModel):
     name: str = Field(description="Stable identifier, referenced by intents and visuals.")
     label: str = Field(description="Human-readable label for display.")
     entity: str = Field(description="Name of the entity this dimension is read from.")
-    column: str = Field(description="Column (or expression) on the entity that holds the value.")
+    column: str = Field(
+        description="Column on the entity that holds the value; an identifier, bound to its table."
+    )
     date_role: str | None = Field(
         default=None,
         description=(
@@ -101,11 +130,32 @@ class Dimension(SemanticModel):
 
 
 class Measure(SemanticModel):
-    """An aggregation over an entity — the aggregate side of a metric's definition."""
+    """An aggregation over one column of an entity — the aggregate side of a metric.
+
+    Structured rather than raw SQL (``agg`` + ``column``) so the compiler binds the column
+    to its table and qualifies it: in a joined query ``count(distinct LeadId)`` is
+    unambiguous by construction, and the aggregate is a function from a closed set over a
+    named column, never an opaque SQL fragment.
+    """
 
     name: str = Field(description="Stable identifier, referenced by metrics.")
     entity: str = Field(description="Name of the entity this measure aggregates over.")
-    expression: str = Field(description="SQL aggregate expression, e.g. count(*) or sum(spend).")
+    agg: Aggregation = Field(description="The aggregate function to apply.")
+    column: str | None = Field(
+        default=None,
+        description="Column to aggregate; omit only for count (count of rows).",
+    )
+    distinct: bool = Field(
+        default=False, description="Aggregate distinct values (e.g. count of distinct ids)."
+    )
+
+    @model_validator(mode="after")
+    def _needs_a_column(self) -> "Measure":
+        if self.agg is not Aggregation.COUNT and self.column is None:
+            raise ValueError(f"measure {self.name!r}: {self.agg.value} requires a column")
+        if self.distinct and self.column is None:
+            raise ValueError(f"measure {self.name!r}: distinct requires a column")
+        return self
 
 
 class MetricBase(SemanticModel):

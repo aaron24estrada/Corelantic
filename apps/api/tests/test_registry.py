@@ -10,6 +10,7 @@ from app.semantic.errors import (
     UnknownMetricError,
 )
 from app.semantic.models import (
+    Aggregation,
     DerivedMetric,
     MetricFormat,
     MetricType,
@@ -25,9 +26,9 @@ def _raw() -> dict[str, object]:
             "leads": {"label": "Leads", "source": "analytics.v_leads"},
         },
         "measures": {
-            "spend_total": {"entity": "leads", "expression": "sum(spend)"},
-            "lead_count": {"entity": "leads", "expression": "count(*)"},
-            "revenue_total": {"entity": "leads", "expression": "sum(revenue)"},
+            "spend_total": {"entity": "leads", "agg": "sum", "column": "spend"},
+            "lead_count": {"entity": "leads", "agg": "count"},
+            "revenue_total": {"entity": "leads", "agg": "sum", "column": "revenue"},
         },
         "metrics": {
             # No `type` — defaults to simple.
@@ -81,7 +82,7 @@ def test_build_registry_injects_names_and_discriminates_types() -> None:
     assert isinstance(margin, DerivedMetric)
     assert margin.measures == ["revenue_total", "spend_total"]
 
-    assert registry.measure("lead_count").expression == "count(*)"
+    assert registry.measure("lead_count").agg is Aggregation.COUNT
     assert registry.dimension("channel").column == "channel"
 
 
@@ -94,7 +95,7 @@ def test_validate_registry_rejects_ratio_with_missing_measure() -> None:
     registry = build_registry(
         {
             "entities": {"leads": {"label": "Leads", "source": "analytics.v_leads"}},
-            "measures": {"lead_count": {"entity": "leads", "expression": "count(*)"}},
+            "measures": {"lead_count": {"entity": "leads", "agg": "count"}},
             "metrics": {
                 "bad": {
                     "type": "ratio",
@@ -115,8 +116,8 @@ def test_validate_registry_rejects_derived_with_undeclared_measure_in_formula() 
         {
             "entities": {"leads": {"label": "Leads", "source": "analytics.v_leads"}},
             "measures": {
-                "lead_count": {"entity": "leads", "expression": "count(*)"},
-                "spend_total": {"entity": "leads", "expression": "sum(spend)"},
+                "lead_count": {"entity": "leads", "agg": "count"},
+                "spend_total": {"entity": "leads", "agg": "sum", "column": "spend"},
             },
             "metrics": {
                 "bad": {
@@ -159,8 +160,8 @@ def test_validate_registry_rejects_metric_mixing_entities() -> None:
                 "cases": {"label": "Cases", "source": "analytics.v_cases"},
             },
             "measures": {
-                "lead_count": {"entity": "leads", "expression": "count(*)"},
-                "case_count": {"entity": "cases", "expression": "count(*)"},
+                "lead_count": {"entity": "leads", "agg": "count"},
+                "case_count": {"entity": "cases", "agg": "count"},
             },
             "metrics": {
                 "leads_per_case": {
@@ -177,6 +178,22 @@ def test_validate_registry_rejects_metric_mixing_entities() -> None:
         validate_registry(registry)
 
 
+def test_validate_registry_rejects_join_edge_to_missing_entity() -> None:
+    registry = build_registry(
+        {
+            "entities": {
+                "leads": {
+                    "label": "Leads",
+                    "source": "analytics.v_leads",
+                    "joins": [{"to": "ghost", "left": "lead_id", "right": "lead_id"}],
+                },
+            },
+        }
+    )
+    with pytest.raises(UnknownEntityError):
+        validate_registry(registry)
+
+
 def test_validate_registry_rejects_dimension_with_missing_entity() -> None:
     registry = build_registry(
         {"dimensions": {"channel": {"label": "Channel", "entity": "ghost", "column": "channel"}}}
@@ -186,9 +203,7 @@ def test_validate_registry_rejects_dimension_with_missing_entity() -> None:
 
 
 def test_validate_registry_rejects_measure_with_missing_entity() -> None:
-    registry = build_registry(
-        {"measures": {"lead_count": {"entity": "ghost", "expression": "count(*)"}}}
-    )
+    registry = build_registry({"measures": {"lead_count": {"entity": "ghost", "agg": "count"}}})
     with pytest.raises(UnknownEntityError):
         validate_registry(registry)
 

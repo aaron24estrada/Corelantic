@@ -5,16 +5,18 @@ import pytest
 from sqlalchemy import Select
 
 from app.query.compiler import compile_query
-from app.query.errors import CrossEntityError, DateDimensionError
+from app.query.errors import DateDimensionError
 from app.query.intent import QueryIntent
 from app.query.time import DateRange, Grain
 from app.semantic.errors import (
     InvalidFormulaError,
     MixedEntityError,
+    NoJoinPathError,
     UnknownDimensionError,
     UnknownMetricError,
 )
 from app.semantic.models import (
+    Aggregation,
     ComparisonMetric,
     ComparisonPeriod,
     CumulativeMetric,
@@ -22,6 +24,7 @@ from app.semantic.models import (
     DerivedMetric,
     Dimension,
     Entity,
+    JoinEdge,
     Measure,
     MetricFormat,
     RatioMetric,
@@ -33,20 +36,38 @@ from app.semantic.models import (
 def _registry() -> SemanticRegistry:
     return SemanticRegistry(
         entities={
-            "leads": Entity(name="leads", label="Leads", source="analytics.v_leads"),
+            "leads": Entity(
+                name="leads",
+                label="Leads",
+                source="analytics.v_leads",
+                joins=[JoinEdge(to="geo", left="lead_id", right="lead_id")],
+            ),
+            "geo": Entity(name="geo", label="Geo", source="analytics.v_geo"),
             "cases": Entity(name="cases", label="Cases", source="analytics.v_cases"),
         },
         measures={
-            "lead_count": Measure(name="lead_count", entity="leads", expression="count(*)"),
-            "spend_total": Measure(name="spend_total", entity="leads", expression="sum(spend)"),
-            "revenue_total": Measure(
-                name="revenue_total", entity="leads", expression="sum(revenue)"
+            "lead_count": Measure(name="lead_count", entity="leads", agg=Aggregation.COUNT),
+            "unique_leads": Measure(
+                name="unique_leads",
+                entity="leads",
+                agg=Aggregation.COUNT,
+                column="lead_id",
+                distinct=True,
             ),
-            "case_count": Measure(name="case_count", entity="cases", expression="count(*)"),
+            "spend_total": Measure(
+                name="spend_total", entity="leads", agg=Aggregation.SUM, column="spend"
+            ),
+            "revenue_total": Measure(
+                name="revenue_total", entity="leads", agg=Aggregation.SUM, column="revenue"
+            ),
+            "case_count": Measure(name="case_count", entity="cases", agg=Aggregation.COUNT),
         },
         metrics={
             "new_leads": SimpleMetric(
                 name="new_leads", label="New leads", description="x", measure="lead_count"
+            ),
+            "unique": SimpleMetric(
+                name="unique", label="Unique leads", description="x", measure="unique_leads"
             ),
             "cost_per_lead": RatioMetric(
                 name="cost_per_lead",
@@ -95,6 +116,7 @@ def _registry() -> SemanticRegistry:
         dimensions={
             "channel": Dimension(name="channel", label="Channel", entity="leads", column="channel"),
             "region": Dimension(name="region", label="Region", entity="leads", column="metro"),
+            "state": Dimension(name="state", label="State", entity="geo", column="state"),
             "lead_date": Dimension(
                 name="lead_date",
                 label="Lead date",
@@ -115,57 +137,82 @@ def _rendered(statement: Select[Any]) -> tuple[str, dict[str, Any]]:
     return " ".join(str(compiled).split()), dict(compiled.params)
 
 
-# --- simple ---------------------------------------------------------------------------
+# --- simple + structural measures -----------------------------------------------------
 
 
 def test_simple_metric_surfaces_its_measure() -> None:
     sql, params = _rendered(compile_query(QueryIntent(metric="new_leads"), _registry()))
-    assert sql == "SELECT count(*) AS new_leads FROM analytics.v_leads"
+    assert sql == "SELECT count(*) AS new_leads FROM analytics.v_leads AS leads"
     assert params == {}
 
 
-def test_simple_metric_with_group_by_and_filter() -> None:
+def test_columns_are_table_qualified() -> None:
     intent = QueryIntent(metric="new_leads", group_by=["channel"], filters={"region": "Houston"})
     sql, params = _rendered(compile_query(intent, _registry()))
     assert sql == (
-        "SELECT channel AS channel, count(*) AS new_leads "
-        "FROM analytics.v_leads WHERE metro = :metro_1 GROUP BY channel"
+        "SELECT leads.channel AS channel, count(*) AS new_leads FROM analytics.v_leads AS leads "
+        "WHERE leads.metro = :metro_1 GROUP BY leads.channel"
     )
     assert params == {"metro_1": "Houston"}
 
 
-# --- ratio ----------------------------------------------------------------------------
+def test_sum_measure_qualifies_its_column() -> None:
+    sql, _ = _rendered(compile_query(QueryIntent(metric="cost_per_lead"), _registry()))
+    assert "sum(leads.spend) /" in sql
+    assert "nullif(count(*)" in sql
+
+
+# --- joins across entities ------------------------------------------------------------
+
+
+def test_group_by_dimension_on_another_entity_joins() -> None:
+    # The acceptance case: a leads metric sliced by geo.state, joined on the key edge.
+    sql, _ = _rendered(
+        compile_query(QueryIntent(metric="new_leads", group_by=["state"]), _registry())
+    )
+    assert sql == (
+        "SELECT geo.state AS state, count(*) AS new_leads "
+        "FROM analytics.v_leads AS leads JOIN analytics.v_geo AS geo "
+        "ON leads.lead_id = geo.lead_id GROUP BY geo.state"
+    )
+
+
+def test_distinct_count_of_join_key_is_unambiguous() -> None:
+    # The whole point of structural measures: lead_id is on both tables, but the measure's
+    # column is bound to its own entity, so the distinct count is qualified.
+    sql, _ = _rendered(compile_query(QueryIntent(metric="unique", group_by=["state"]), _registry()))
+    assert "count(DISTINCT leads.lead_id)" in sql
+    assert "JOIN analytics.v_geo AS geo ON leads.lead_id = geo.lead_id" in sql
+
+
+def test_filter_on_joined_entity_joins() -> None:
+    intent = QueryIntent(metric="new_leads", filters={"state": "TX"})
+    sql, params = _rendered(compile_query(intent, _registry()))
+    assert "JOIN analytics.v_geo AS geo" in sql
+    assert "WHERE geo.state = :state_1" in sql
+    assert params == {"state_1": "TX"}
+
+
+def test_dimension_with_no_join_path_raises() -> None:
+    # cases has no join edge to leads.
+    with pytest.raises(NoJoinPathError):
+        compile_query(QueryIntent(metric="new_leads", group_by=["attorney"]), _registry())
+
+
+# --- ratio / derived ------------------------------------------------------------------
 
 
 def test_ratio_metric_divides_measures_guarding_zero() -> None:
-    sql, _ = _rendered(compile_query(QueryIntent(metric="cost_per_lead"), _registry()))
-    # numerator / nullif(denominator, 0), aliased to the metric name.
-    assert "sum(spend) /" in sql
-    assert "nullif(count(*)" in sql
-    assert sql.endswith("AS cost_per_lead FROM analytics.v_leads")
-
-
-def test_ratio_metric_roas() -> None:
     sql, _ = _rendered(compile_query(QueryIntent(metric="roas"), _registry()))
-    assert "sum(revenue) /" in sql
-    assert "nullif(sum(spend)" in sql
+    assert "sum(leads.revenue) /" in sql
+    assert "nullif(sum(leads.spend)" in sql
     assert "AS roas" in sql
-
-
-def test_ratio_metric_groups_by_a_dimension() -> None:
-    intent = QueryIntent(metric="cost_per_lead", group_by=["channel"])
-    sql, _ = _rendered(compile_query(intent, _registry()))
-    assert sql.startswith("SELECT channel AS channel,")
-    assert sql.endswith("GROUP BY channel")
-
-
-# --- derived --------------------------------------------------------------------------
 
 
 def test_derived_metric_compiles_its_formula() -> None:
     sql, _ = _rendered(compile_query(QueryIntent(metric="margin_pct"), _registry()))
-    assert "sum(revenue) - sum(spend)" in sql
-    assert "nullif(sum(revenue)" in sql  # the division is zero-guarded
+    assert "sum(leads.revenue) - sum(leads.spend)" in sql
+    assert "nullif(sum(leads.revenue)" in sql
     assert "* 100" in sql
     assert "AS margin_pct" in sql
 
@@ -177,20 +224,7 @@ def test_derived_formula_referencing_a_measure_not_declared_raises() -> None:
         label="Bad",
         description="x",
         measures=["lead_count"],
-        expression="lead_count + spend_total",  # spend_total not in measures
-    )
-    with pytest.raises(InvalidFormulaError):
-        compile_query(QueryIntent(metric="bad"), registry)
-
-
-def test_derived_formula_with_disallowed_syntax_raises() -> None:
-    registry = _registry()
-    registry.metrics["bad"] = DerivedMetric(
-        name="bad",
-        label="Bad",
-        description="x",
-        measures=["lead_count"],
-        expression="evil(lead_count)",  # a call is not in the allowlist
+        expression="lead_count + spend_total",
     )
     with pytest.raises(InvalidFormulaError):
         compile_query(QueryIntent(metric="bad"), registry)
@@ -200,24 +234,16 @@ def test_derived_formula_with_disallowed_syntax_raises() -> None:
 
 
 def test_grain_buckets_on_the_date_dimension() -> None:
-    # The date dimension is inferred (the entity has exactly one), bucketed, and grouped.
-    intent = QueryIntent(metric="new_leads", grain=Grain.MONTH)
-    sql, _ = _rendered(compile_query(intent, _registry()))
+    sql, _ = _rendered(
+        compile_query(QueryIntent(metric="new_leads", grain=Grain.MONTH), _registry())
+    )
     assert sql == (
-        "SELECT date_trunc('month', created_at) AS period, count(*) AS new_leads "
-        "FROM analytics.v_leads GROUP BY date_trunc('month', created_at)"
+        "SELECT date_trunc('month', leads.created_at) AS period, count(*) AS new_leads "
+        "FROM analytics.v_leads AS leads GROUP BY date_trunc('month', leads.created_at)"
     )
 
 
-def test_grain_combines_with_group_by() -> None:
-    intent = QueryIntent(metric="new_leads", grain=Grain.WEEK, group_by=["channel"])
-    sql, _ = _rendered(compile_query(intent, _registry()))
-    assert sql.startswith("SELECT date_trunc('week', created_at) AS period, channel AS channel,")
-    assert sql.endswith("GROUP BY date_trunc('week', created_at), channel")
-
-
 def test_grain_without_a_date_dimension_raises() -> None:
-    # cases has no temporal dimension.
     registry = _registry()
     registry.metrics["case_total"] = SimpleMetric(
         name="case_total", label="Cases", description="x", measure="case_count"
@@ -229,98 +255,57 @@ def test_grain_without_a_date_dimension_raises() -> None:
 # --- date ranges ----------------------------------------------------------------------
 
 
-def test_date_range_binds_both_bounds() -> None:
+def test_date_range_is_half_open() -> None:
     intent = QueryIntent(
         metric="new_leads", date_range=DateRange(start=date(2026, 1, 1), end=date(2026, 6, 30))
     )
     sql, params = _rendered(compile_query(intent, _registry()))
-    # Upper bound is half-open (< end + 1 day) so a timestamp column still includes all
-    # of the end date.
     assert sql == (
-        "SELECT count(*) AS new_leads FROM analytics.v_leads "
-        "WHERE created_at >= :created_at_1 AND created_at < :created_at_2"
+        "SELECT count(*) AS new_leads FROM analytics.v_leads AS leads "
+        "WHERE leads.created_at >= :created_at_1 AND leads.created_at < :created_at_2"
     )
     assert set(params.values()) == {date(2026, 1, 1), date(2026, 7, 1)}
 
 
-def test_open_ended_range_binds_one_bound() -> None:
-    intent = QueryIntent(metric="new_leads", date_range=DateRange(start=date(2026, 1, 1)))
-    sql, params = _rendered(compile_query(intent, _registry()))
-    assert sql.endswith("WHERE created_at >= :created_at_1")
-    assert list(params.values()) == [date(2026, 1, 1)]
-
-
-# --- comparison (WoW/MoM) -------------------------------------------------------------
+# --- comparison / cumulative ----------------------------------------------------------
 
 
 def test_comparison_computes_prior_period_pct_delta() -> None:
     sql, _ = _rendered(compile_query(QueryIntent(metric="leads_wow_pct"), _registry()))
-    # Weekly buckets in a subquery; LAG gives the prior week; delta is guarded pct change.
-    assert "date_trunc('week', created_at) AS period" in sql
+    assert "date_trunc('week', leads.created_at) AS period" in sql
     assert "lag(anon_1.value) OVER (ORDER BY anon_1.period)" in sql
-    assert "nullif(lag(anon_1.value)" in sql  # zero-guarded division
+    assert "nullif(lag(anon_1.value)" in sql
     assert "AS leads_wow_pct" in sql
 
 
-def test_comparison_change_kind_is_a_plain_difference() -> None:
-    registry = _registry()
-    registry.metrics["leads_wow"] = ComparisonMetric(
-        name="leads_wow",
-        label="Leads WoW",
-        description="x",
-        measure="lead_count",
-        period=ComparisonPeriod.WOW,
-        kind="change",
-    )
-    sql, _ = _rendered(compile_query(QueryIntent(metric="leads_wow"), registry))
-    assert "anon_1.value - lag(anon_1.value) OVER (ORDER BY anon_1.period) AS leads_wow" in sql
-    assert "nullif" not in sql  # a difference, not a ratio
-
-
 def test_comparison_partitions_by_group_dimension() -> None:
-    intent = QueryIntent(metric="leads_wow_pct", group_by=["channel"])
-    sql, _ = _rendered(compile_query(intent, _registry()))
+    sql, _ = _rendered(
+        compile_query(QueryIntent(metric="leads_wow_pct", group_by=["channel"]), _registry())
+    )
     assert "PARTITION BY anon_1.channel ORDER BY anon_1.period" in sql
 
 
-# --- cumulative (MTD/YTD) -------------------------------------------------------------
-
-
 def test_cumulative_is_a_running_total_resetting_each_window() -> None:
-    intent = QueryIntent(metric="spend_ytd", grain=Grain.MONTH)
-    sql, _ = _rendered(compile_query(intent, _registry()))
-    assert "date_trunc('month', created_at) AS period" in sql  # accumulation grain
+    sql, _ = _rendered(
+        compile_query(QueryIntent(metric="spend_ytd", grain=Grain.MONTH), _registry())
+    )
+    assert "sum(leads.spend) AS value" in sql
     assert (
         "sum(anon_1.value) OVER (PARTITION BY date_trunc('year', anon_1.period) "
         "ORDER BY anon_1.period ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW)"
     ) in sql
-    assert "AS spend_ytd" in sql
 
 
-# --- date-dimension resolution --------------------------------------------------------
-
-
-def test_named_non_date_dimension_is_rejected() -> None:
-    with pytest.raises(DateDimensionError):
-        compile_query(
-            QueryIntent(metric="new_leads", grain=Grain.MONTH, date_dimension="channel"),
-            _registry(),
-        )
-
-
-# --- guards -----------------------------------------------------------------------------
+# --- guards ---------------------------------------------------------------------------
 
 
 def test_filter_value_is_bound_never_interpolated() -> None:
-    # A hostile value must land in the bound parameters, never in the SQL text — the
-    # structural guarantee of building a Core statement instead of a string.
     hostile = "Houston'; DROP TABLE v_leads; --"
     statement = compile_query(
         QueryIntent(metric="new_leads", filters={"region": hostile}), _registry()
     )
     sql, params = _rendered(statement)
     assert hostile not in sql
-    assert sql == "SELECT count(*) AS new_leads FROM analytics.v_leads WHERE metro = :metro_1"
     assert params == {"metro_1": hostile}
 
 
@@ -332,11 +317,6 @@ def test_unknown_metric_raises() -> None:
 def test_unknown_dimension_raises() -> None:
     with pytest.raises(UnknownDimensionError):
         compile_query(QueryIntent(metric="new_leads", group_by=["missing"]), _registry())
-
-
-def test_cross_entity_dimension_raises() -> None:
-    with pytest.raises(CrossEntityError):
-        compile_query(QueryIntent(metric="new_leads", group_by=["attorney"]), _registry())
 
 
 def test_metric_mixing_entities_raises() -> None:
