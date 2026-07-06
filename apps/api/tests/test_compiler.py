@@ -1,11 +1,13 @@
+from datetime import date
 from typing import Any
 
 import pytest
 from sqlalchemy import Select
 
 from app.query.compiler import compile_query
-from app.query.errors import CrossEntityError, TimeIntelligenceRequiredError
+from app.query.errors import CrossEntityError, DateDimensionError
 from app.query.intent import QueryIntent
+from app.query.time import DateRange, Grain
 from app.semantic.errors import (
     InvalidFormulaError,
     MixedEntityError,
@@ -14,7 +16,9 @@ from app.semantic.errors import (
 )
 from app.semantic.models import (
     ComparisonMetric,
+    ComparisonPeriod,
     CumulativeMetric,
+    CumulativeWindow,
     DerivedMetric,
     Dimension,
     Entity,
@@ -71,14 +75,14 @@ def _registry() -> SemanticRegistry:
                 label="Spend YTD",
                 description="x",
                 measure="spend_total",
-                window="ytd",
+                window=CumulativeWindow.YTD,
             ),
             "leads_wow_pct": ComparisonMetric(
                 name="leads_wow_pct",
                 label="Leads WoW %",
                 description="x",
                 measure="lead_count",
-                period="wow",
+                period=ComparisonPeriod.WOW,
             ),
             "leads_per_case": RatioMetric(
                 name="leads_per_case",
@@ -91,6 +95,13 @@ def _registry() -> SemanticRegistry:
         dimensions={
             "channel": Dimension(name="channel", label="Channel", entity="leads", column="channel"),
             "region": Dimension(name="region", label="Region", entity="leads", column="metro"),
+            "lead_date": Dimension(
+                name="lead_date",
+                label="Lead date",
+                entity="leads",
+                column="created_at",
+                date_role="lead",
+            ),
             "attorney": Dimension(
                 name="attorney", label="Attorney", entity="cases", column="attorney"
             ),
@@ -185,17 +196,114 @@ def test_derived_formula_with_disallowed_syntax_raises() -> None:
         compile_query(QueryIntent(metric="bad"), registry)
 
 
-# --- time-based types are deferred to B4 ----------------------------------------------
+# --- grain bucketing ------------------------------------------------------------------
 
 
-def test_cumulative_metric_defers_to_time_intelligence() -> None:
-    with pytest.raises(TimeIntelligenceRequiredError):
-        compile_query(QueryIntent(metric="spend_ytd"), _registry())
+def test_grain_buckets_on_the_date_dimension() -> None:
+    # The date dimension is inferred (the entity has exactly one), bucketed, and grouped.
+    intent = QueryIntent(metric="new_leads", grain=Grain.MONTH)
+    sql, _ = _rendered(compile_query(intent, _registry()))
+    assert sql == (
+        "SELECT date_trunc('month', created_at) AS period, count(*) AS new_leads "
+        "FROM analytics.v_leads GROUP BY date_trunc('month', created_at)"
+    )
 
 
-def test_comparison_metric_defers_to_time_intelligence() -> None:
-    with pytest.raises(TimeIntelligenceRequiredError):
-        compile_query(QueryIntent(metric="leads_wow_pct"), _registry())
+def test_grain_combines_with_group_by() -> None:
+    intent = QueryIntent(metric="new_leads", grain=Grain.WEEK, group_by=["channel"])
+    sql, _ = _rendered(compile_query(intent, _registry()))
+    assert sql.startswith("SELECT date_trunc('week', created_at) AS period, channel AS channel,")
+    assert sql.endswith("GROUP BY date_trunc('week', created_at), channel")
+
+
+def test_grain_without_a_date_dimension_raises() -> None:
+    # cases has no temporal dimension.
+    registry = _registry()
+    registry.metrics["case_total"] = SimpleMetric(
+        name="case_total", label="Cases", description="x", measure="case_count"
+    )
+    with pytest.raises(DateDimensionError):
+        compile_query(QueryIntent(metric="case_total", grain=Grain.MONTH), registry)
+
+
+# --- date ranges ----------------------------------------------------------------------
+
+
+def test_date_range_binds_both_bounds() -> None:
+    intent = QueryIntent(
+        metric="new_leads", date_range=DateRange(start=date(2026, 1, 1), end=date(2026, 6, 30))
+    )
+    sql, params = _rendered(compile_query(intent, _registry()))
+    assert sql == (
+        "SELECT count(*) AS new_leads FROM analytics.v_leads "
+        "WHERE created_at >= :created_at_1 AND created_at <= :created_at_2"
+    )
+    assert set(params.values()) == {date(2026, 1, 1), date(2026, 6, 30)}
+
+
+def test_open_ended_range_binds_one_bound() -> None:
+    intent = QueryIntent(metric="new_leads", date_range=DateRange(start=date(2026, 1, 1)))
+    sql, params = _rendered(compile_query(intent, _registry()))
+    assert sql.endswith("WHERE created_at >= :created_at_1")
+    assert list(params.values()) == [date(2026, 1, 1)]
+
+
+# --- comparison (WoW/MoM) -------------------------------------------------------------
+
+
+def test_comparison_computes_prior_period_pct_delta() -> None:
+    sql, _ = _rendered(compile_query(QueryIntent(metric="leads_wow_pct"), _registry()))
+    # Weekly buckets in a subquery; LAG gives the prior week; delta is guarded pct change.
+    assert "date_trunc('week', created_at) AS period" in sql
+    assert "lag(anon_1.value) OVER (ORDER BY anon_1.period)" in sql
+    assert "nullif(lag(anon_1.value)" in sql  # zero-guarded division
+    assert "AS leads_wow_pct" in sql
+
+
+def test_comparison_change_kind_is_a_plain_difference() -> None:
+    registry = _registry()
+    registry.metrics["leads_wow"] = ComparisonMetric(
+        name="leads_wow",
+        label="Leads WoW",
+        description="x",
+        measure="lead_count",
+        period=ComparisonPeriod.WOW,
+        kind="change",
+    )
+    sql, _ = _rendered(compile_query(QueryIntent(metric="leads_wow"), registry))
+    assert "anon_1.value - lag(anon_1.value) OVER (ORDER BY anon_1.period) AS leads_wow" in sql
+    assert "nullif" not in sql  # a difference, not a ratio
+
+
+def test_comparison_partitions_by_group_dimension() -> None:
+    intent = QueryIntent(metric="leads_wow_pct", group_by=["channel"])
+    sql, _ = _rendered(compile_query(intent, _registry()))
+    assert "PARTITION BY anon_1.channel ORDER BY anon_1.period" in sql
+
+
+# --- cumulative (MTD/YTD) -------------------------------------------------------------
+
+
+def test_cumulative_is_a_running_total_resetting_each_window() -> None:
+    intent = QueryIntent(metric="spend_ytd", grain=Grain.MONTH)
+    sql, _ = _rendered(compile_query(intent, _registry()))
+    assert "date_trunc('month', created_at) AS period" in sql  # accumulation grain
+    assert (
+        "sum(anon_1.value) OVER (PARTITION BY date_trunc('year', anon_1.period) "
+        "ORDER BY anon_1.period ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW)"
+    ) in sql
+    assert "AS spend_ytd" in sql
+
+
+# --- date-dimension resolution --------------------------------------------------------
+
+
+def test_named_non_date_dimension_is_rejected() -> None:
+    with pytest.raises(DateDimensionError):
+        compile_query(
+            QueryIntent(metric="new_leads", grain=Grain.MONTH, date_dimension="channel"),
+            _registry(),
+        )
 
 
 # --- guards -----------------------------------------------------------------------------

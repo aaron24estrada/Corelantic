@@ -57,6 +57,20 @@ class MetricType(StrEnum):
     COMPARISON = "comparison"
 
 
+class CumulativeWindow(StrEnum):
+    """The period a cumulative metric accumulates within before resetting."""
+
+    MTD = "mtd"
+    YTD = "ytd"
+
+
+class ComparisonPeriod(StrEnum):
+    """The prior period a comparison metric measures change against."""
+
+    WOW = "wow"
+    MOM = "mom"
+
+
 class Entity(SemanticModel):
     """A queryable table or view — the one place a physical binding lives."""
 
@@ -70,6 +84,14 @@ class Dimension(SemanticModel):
     label: str = Field(description="Human-readable label for display.")
     entity: str = Field(description="Name of the entity this dimension is read from.")
     column: str = Field(description="Column (or expression) on the entity that holds the value.")
+    date_role: str | None = Field(
+        default=None,
+        description=(
+            "If set, a date dimension of this role (e.g. lead, referral) — its column is a "
+            "date the compiler may bucket by grain and filter by range. There are two roles "
+            "(lead vs referral); an intent names which one to use."
+        ),
+    )
     members: list[str] = Field(
         default_factory=list, description="Known values, when the set is closed."
     )
@@ -132,17 +154,17 @@ class CumulativeMetric(MetricBase):
 
     type: Literal[MetricType.CUMULATIVE] = MetricType.CUMULATIVE
     measure: str = Field(description="Name of the measure to accumulate.")
-    window: str = Field(description="Accumulation window, e.g. mtd or ytd (time intelligence: B4).")
+    window: CumulativeWindow = Field(description="Period the running total resets within.")
 
 
 class ComparisonMetric(MetricBase):
-    """A measure compared to a prior period (WoW/MoM). Compiled by B4."""
+    """A measure compared to a prior period (WoW/MoM)."""
 
     type: Literal[MetricType.COMPARISON] = MetricType.COMPARISON
     measure: str = Field(description="Name of the measure to compare across periods.")
-    period: str = Field(description="Prior period to compare against, e.g. wow or mom.")
+    period: ComparisonPeriod = Field(description="Prior period to compare against.")
     kind: Literal["pct", "change"] = Field(
-        default="pct", description="Percent change or absolute change (time intelligence: B4)."
+        default="pct", description="Percent change or absolute change."
     )
 
 

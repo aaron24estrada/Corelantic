@@ -1,6 +1,6 @@
 """Errors raised while compiling a query intent into SQL."""
 
-from app.semantic.models import Dimension, Metric
+from app.semantic.models import Dimension
 
 
 class CompileError(Exception):
@@ -23,17 +23,16 @@ class CrossEntityError(CompileError):
         self.dimension = dimension
 
 
-class TimeIntelligenceRequiredError(CompileError):
-    """A metric type needs time intelligence the MVP compiler does not have yet.
+class DateDimensionError(CompileError):
+    """A time operation could not resolve which date dimension to use.
 
-    Cumulative (MTD/YTD) and comparison (WoW/MoM) metrics need a date dimension, grain,
-    and period-offset windowing — delivered by B4. They are modelled and validated now,
-    but compiling them is deferred rather than faked.
+    Grain bucketing, date ranges, and the temporal metric types (cumulative, comparison)
+    all need a single date dimension on the entity. This is raised when none exists, when
+    an entity has several and the intent did not name one, or when the named dimension is
+    missing, not temporal, or on another entity.
     """
 
-    def __init__(self, metric: Metric) -> None:
-        super().__init__(
-            f"Metric {metric.name!r} of type {metric.type.value!r} needs time "
-            f"intelligence (B4) to compile."
-        )
-        self.metric = metric
+    def __init__(self, entity: str, reason: str) -> None:
+        super().__init__(f"No usable date dimension for entity {entity!r}: {reason}.")
+        self.entity = entity
+        self.reason = reason

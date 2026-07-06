@@ -24,6 +24,14 @@ dimensions:
     entity: leads
     column: metro
     synonyms: ["metro", "area"]
+  # A date dimension (role "lead") — the compiler may bucket it by grain and range on it.
+  # A second role (referral) would be a separate temporal dimension on its own entity.
+  lead_date:
+    label: "Lead date"
+    entity: leads
+    column: created_at
+    date_role: lead
+    synonyms: ["date", "created"]
 
 measures:
   lead_count:
@@ -65,3 +73,21 @@ metrics:
     numerator: revenue_total
     denominator: spend_total
     synonyms: ["return on ad spend"]
+  # Comparison — a measure's change vs the prior period (WoW/MoM); buckets on lead_date.
+  leads_wow_pct:
+    type: comparison
+    label: "Leads WoW %"
+    description: "Week-over-week percent change in new leads."
+    measure: lead_count
+    period: wow
+    kind: pct
+    format: percent
+    synonyms: ["leads week over week"]
+  # Cumulative — a running total that resets each period (MTD/YTD).
+  spend_ytd:
+    type: cumulative
+    label: "Marketing spend YTD"
+    description: "Year-to-date running total of marketing spend."
+    measure: spend_total
+    window: ytd
+    format: currency
