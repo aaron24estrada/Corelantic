@@ -17,7 +17,7 @@ from typing import Any
 
 import yaml
 
-from app.semantic.errors import AmbiguousTermError, DuplicateNameError
+from app.semantic.errors import AmbiguousTermError, DuplicateNameError, MalformedRegistryError
 from app.semantic.formula import validate_formula
 from app.semantic.models import (
     METRIC_ADAPTER,
@@ -33,20 +33,49 @@ from app.semantic.models import (
 from app.semantic.resolve import resolve_metric_entity
 
 
+class _UniqueKeyLoader(yaml.SafeLoader):
+    """A SafeLoader that rejects duplicate mapping keys instead of keeping the last.
+
+    Plain ``yaml.safe_load`` silently drops all but the last of two identical keys, so a
+    definition repeated *within* one file would vanish before the cross-file merge could
+    see it. This makes that a load error too.
+    """
+
+
+def _no_duplicate_keys(loader: _UniqueKeyLoader, node: yaml.MappingNode) -> dict[Any, Any]:
+    mapping: dict[Any, Any] = {}
+    for key_node, value_node in node.value:
+        key = loader.construct_object(key_node, deep=True)
+        if key in mapping:
+            raise DuplicateNameError("key", str(key))
+        mapping[key] = loader.construct_object(value_node, deep=True)
+    return mapping
+
+
+_UniqueKeyLoader.add_constructor(yaml.resolver.BaseResolver.DEFAULT_MAPPING_TAG, _no_duplicate_keys)
+
+
+def _section(raw: dict[str, Any], key: str) -> dict[str, dict[str, Any]]:
+    value = raw.get(key)
+    if value is None:
+        return {}
+    if not isinstance(value, dict):
+        raise MalformedRegistryError(f"{key!r} must be a mapping, got {type(value).__name__}")
+    return value
+
+
 def _build_metric(name: str, body: dict[str, Any]) -> Metric:
     return METRIC_ADAPTER.validate_python({"type": MetricType.SIMPLE, **body, "name": name})
 
 
 def build_registry(raw: dict[str, Any]) -> SemanticRegistry:
-    raw_entities: dict[str, dict[str, Any]] = raw.get("entities") or {}
-    raw_dimensions: dict[str, dict[str, Any]] = raw.get("dimensions") or {}
-    raw_measures: dict[str, dict[str, Any]] = raw.get("measures") or {}
-    raw_metrics: dict[str, dict[str, Any]] = raw.get("metrics") or {}
+    if not isinstance(raw, dict):
+        raise MalformedRegistryError(f"a file must be a mapping, got {type(raw).__name__}")
     return SemanticRegistry(
-        entities={name: Entity(name=name, **body) for name, body in raw_entities.items()},
-        dimensions={name: Dimension(name=name, **body) for name, body in raw_dimensions.items()},
-        measures={name: Measure(name=name, **body) for name, body in raw_measures.items()},
-        metrics={name: _build_metric(name, body) for name, body in raw_metrics.items()},
+        entities={n: Entity(name=n, **b) for n, b in _section(raw, "entities").items()},
+        dimensions={n: Dimension(name=n, **b) for n, b in _section(raw, "dimensions").items()},
+        measures={n: Measure(name=n, **b) for n, b in _section(raw, "measures").items()},
+        metrics={n: _build_metric(n, b) for n, b in _section(raw, "metrics").items()},
     )
 
 
@@ -114,7 +143,7 @@ def validate_registry(registry: SemanticRegistry) -> SemanticRegistry:
 
 def load_registry(directory: Path) -> SemanticRegistry:
     registries = [
-        build_registry(yaml.safe_load(path.read_text()) or {})
+        build_registry(yaml.load(path.read_text(), Loader=_UniqueKeyLoader) or {})
         for path in sorted(directory.glob("*.yaml"))
     ]
     return validate_registry(merge_registries(registries))

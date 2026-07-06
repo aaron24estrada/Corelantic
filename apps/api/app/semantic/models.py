@@ -21,7 +21,7 @@ us; they are the trusted side of the SQL trust boundary (see app/query/compiler.
 from enum import StrEnum
 from typing import Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, model_validator
+from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, field_validator, model_validator
 
 from app.semantic.errors import (
     UnknownDimensionError,
@@ -41,6 +41,12 @@ class SemanticModel(BaseModel):
     """
 
     model_config = ConfigDict(extra="forbid")
+
+
+def _reject_blank_synonyms(value: list[str]) -> list[str]:
+    if any(not synonym.strip() for synonym in value):
+        raise ValueError("synonyms must not be blank")
+    return value
 
 
 class MetricFormat(StrEnum):
@@ -128,6 +134,11 @@ class Dimension(SemanticModel):
         default_factory=list, description="Natural-language aliases used for matching."
     )
 
+    @field_validator("synonyms")
+    @classmethod
+    def _synonyms_not_blank(cls, value: list[str]) -> list[str]:
+        return _reject_blank_synonyms(value)
+
 
 class Measure(SemanticModel):
     """An aggregation over one column of an entity — the aggregate side of a metric.
@@ -170,6 +181,11 @@ class MetricBase(SemanticModel):
     synonyms: list[str] = Field(
         default_factory=list, description="Natural-language aliases used for matching."
     )
+
+    @field_validator("synonyms")
+    @classmethod
+    def _synonyms_not_blank(cls, value: list[str]) -> list[str]:
+        return _reject_blank_synonyms(value)
 
 
 class SimpleMetric(MetricBase):
@@ -267,6 +283,8 @@ class SemanticRegistry(SemanticModel):
         """Resolve a natural-language term to a metric name via its name or synonyms."""
 
         needle = term.strip().lower()
+        if not needle:
+            return None
         for metric in self.metrics.values():
             if needle in terms(metric.name, metric.synonyms):
                 return metric.name
@@ -276,6 +294,8 @@ class SemanticRegistry(SemanticModel):
         """Resolve a natural-language term to a dimension name via its name or synonyms."""
 
         needle = term.strip().lower()
+        if not needle:
+            return None
         for dimension in self.dimensions.values():
             if needle in terms(dimension.name, dimension.synonyms):
                 return dimension.name

@@ -62,16 +62,25 @@ class MixedEntityError(SemanticError):
 
 
 class DuplicateNameError(SemanticError):
-    """Two registry files define the same name in the same collection.
+    """The same name is defined twice — across files, or as a repeated YAML key.
 
-    Names are identifiers; a silent last-writer-wins merge would hide one definition. A
-    duplicate across files is an authoring mistake we surface at load.
+    Names are identifiers; a silent last-writer-wins merge (or pyyaml keeping the last of
+    two duplicate keys) would hide one definition. A duplicate is an authoring mistake we
+    surface at load rather than silently drop.
     """
 
     def __init__(self, kind: str, name: str) -> None:
-        super().__init__(f"Duplicate {kind} {name!r} defined in more than one file.")
+        super().__init__(f"Duplicate {kind} {name!r}.")
         self.kind = kind
         self.name = name
+
+
+class MalformedRegistryError(SemanticError):
+    """A registry file is not the expected shape (a mapping of collections of definitions)."""
+
+    def __init__(self, reason: str) -> None:
+        super().__init__(f"Malformed registry: {reason}.")
+        self.reason = reason
 
 
 class AmbiguousTermError(SemanticError):

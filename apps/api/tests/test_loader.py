@@ -1,8 +1,13 @@
 from pathlib import Path
 
 import pytest
+from pydantic import ValidationError
 
-from app.semantic.errors import AmbiguousTermError, DuplicateNameError
+from app.semantic.errors import (
+    AmbiguousTermError,
+    DuplicateNameError,
+    MalformedRegistryError,
+)
 from app.semantic.models import SemanticRegistry, SimpleMetric
 from app.semantic.registry import build_registry, load_registry, merge_registries
 from scripts.validate_registry import validate
@@ -41,6 +46,24 @@ def test_duplicate_name_across_files_errors() -> None:
         merge_registries([first, second])
 
 
+def test_duplicate_key_within_a_file_errors(tmp_path: Path) -> None:
+    # pyyaml would silently keep the last; the loader rejects it.
+    _write(
+        tmp_path,
+        "dupe.yaml",
+        "measures:\n"
+        "  lead_count:\n    entity: leads\n    agg: count\n"
+        "  lead_count:\n    entity: leads\n    agg: sum\n    column: x\n",
+    )
+    with pytest.raises(DuplicateNameError):
+        load_registry(tmp_path)
+
+
+def test_malformed_section_shape_errors() -> None:
+    with pytest.raises(MalformedRegistryError):
+        build_registry({"metrics": []})  # a list, not a mapping
+
+
 # --- synonym matching -----------------------------------------------------------------
 
 
@@ -75,6 +98,25 @@ def test_match_resolves_name_and_synonyms_case_insensitively() -> None:
     assert registry.match_metric("Ad Spend") == "marketing_spend"
     assert registry.match_metric("unknown") is None
     assert registry.match_dimension("METRO") == "region"
+    assert registry.match_metric("   ") is None  # blank input never matches
+
+
+def test_blank_synonym_is_rejected() -> None:
+    with pytest.raises(ValidationError):
+        build_registry(
+            {
+                "entities": {"leads": {"label": "Leads", "source": "v_leads"}},
+                "measures": {"lead_count": {"entity": "leads", "agg": "count"}},
+                "metrics": {
+                    "m": {
+                        "label": "M",
+                        "description": "x",
+                        "measure": "lead_count",
+                        "synonyms": ["  "],
+                    },
+                },
+            }
+        )
 
 
 def test_validate_rejects_a_synonym_shared_by_two_metrics() -> None:
