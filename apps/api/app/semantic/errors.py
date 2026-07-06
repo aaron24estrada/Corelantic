@@ -61,6 +61,33 @@ class MixedEntityError(SemanticError):
         self.entities = entities
 
 
+class DuplicateNameError(SemanticError):
+    """Two registry files define the same name in the same collection.
+
+    Names are identifiers; a silent last-writer-wins merge would hide one definition. A
+    duplicate across files is an authoring mistake we surface at load.
+    """
+
+    def __init__(self, kind: str, name: str) -> None:
+        super().__init__(f"Duplicate {kind} {name!r} defined in more than one file.")
+        self.kind = kind
+        self.name = name
+
+
+class AmbiguousTermError(SemanticError):
+    """A name or synonym would match more than one metric (or dimension).
+
+    Synonyms exist so the agent can map natural language to one definition; a term that
+    resolves to two is not usable for matching and is rejected at load.
+    """
+
+    def __init__(self, kind: str, term: str, names: list[str]) -> None:
+        super().__init__(f"Term {term!r} matches more than one {kind}: {names}.")
+        self.kind = kind
+        self.term = term
+        self.names = names
+
+
 class NoJoinPathError(SemanticError):
     """No sequence of declared join edges connects two entities.
 

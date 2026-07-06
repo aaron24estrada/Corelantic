@@ -227,6 +227,12 @@ Metric = Annotated[
 METRIC_ADAPTER: TypeAdapter[Metric] = TypeAdapter(Metric)
 
 
+def terms(name: str, synonyms: list[str]) -> set[str]:
+    """The normalized natural-language terms that resolve to a name (name + synonyms)."""
+
+    return {term.strip().lower() for term in (name, *synonyms)}
+
+
 class SemanticRegistry(SemanticModel):
     entities: dict[str, Entity] = Field(default_factory=dict)
     dimensions: dict[str, Dimension] = Field(default_factory=dict)
@@ -256,3 +262,21 @@ class SemanticRegistry(SemanticModel):
             return self.metrics[name]
         except KeyError:
             raise UnknownMetricError(name) from None
+
+    def match_metric(self, term: str) -> str | None:
+        """Resolve a natural-language term to a metric name via its name or synonyms."""
+
+        needle = term.strip().lower()
+        for metric in self.metrics.values():
+            if needle in terms(metric.name, metric.synonyms):
+                return metric.name
+        return None
+
+    def match_dimension(self, term: str) -> str | None:
+        """Resolve a natural-language term to a dimension name via its name or synonyms."""
+
+        needle = term.strip().lower()
+        for dimension in self.dimensions.values():
+            if needle in terms(dimension.name, dimension.synonyms):
+                return dimension.name
+        return None
