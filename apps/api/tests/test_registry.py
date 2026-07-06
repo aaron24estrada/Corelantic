@@ -2,6 +2,7 @@ import pytest
 from pydantic import ValidationError
 
 from app.semantic.errors import (
+    DuplicateJoinError,
     InvalidFormulaError,
     MixedEntityError,
     UnknownDimensionError,
@@ -175,6 +176,26 @@ def test_validate_registry_rejects_metric_mixing_entities() -> None:
         }
     )
     with pytest.raises(MixedEntityError):
+        validate_registry(registry)
+
+
+def test_validate_registry_rejects_two_join_edges_to_the_same_target() -> None:
+    registry = build_registry(
+        {
+            "entities": {
+                "leads": {
+                    "label": "Leads",
+                    "source": "analytics.v_leads",
+                    "joins": [
+                        {"to": "geo", "left": "lead_id", "right": "lead_id"},
+                        {"to": "geo", "left": "other_id", "right": "id"},
+                    ],
+                },
+                "geo": {"label": "Geo", "source": "analytics.v_geo"},
+            },
+        }
+    )
+    with pytest.raises(DuplicateJoinError):
         validate_registry(registry)
 
 

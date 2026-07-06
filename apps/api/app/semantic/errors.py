@@ -123,10 +123,24 @@ class JoinFanOutError(SemanticError):
     def __init__(self, from_entity: str, to_entity: str) -> None:
         super().__init__(
             f"Joining {to_entity!r} onto {from_entity!r} is one-to-many; it would inflate "
-            f"the fact's measures. Declare the edge's cardinality or avoid this join."
+            f"the fact's measures. Check the edge cardinality if that is unexpected, group "
+            f"by a different dimension, or add fan-out-safe aggregation."
         )
         self.from_entity = from_entity
         self.to_entity = to_entity
+
+
+class DuplicateJoinError(SemanticError):
+    """An entity declares more than one join edge to the same target.
+
+    Without named join roles, two edges to the same entity are contradictory — the join
+    path taken would depend on declaration order. Surface it at load.
+    """
+
+    def __init__(self, entity: str, target: str) -> None:
+        super().__init__(f"Entity {entity!r} declares more than one join edge to {target!r}.")
+        self.entity = entity
+        self.target = target
 
 
 class UnknownDimensionError(SemanticError):

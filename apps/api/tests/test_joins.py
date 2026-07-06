@@ -84,3 +84,30 @@ def test_one_to_many_fans_out_forward() -> None:
     )
     assert find_join_path("leads", "events", registry)[0].fans_out is True
     assert find_join_path("events", "leads", registry)[0].fans_out is False
+
+
+def test_prefers_a_fan_out_free_path_over_a_shorter_fan_out_one() -> None:
+    # A → B is a direct one-to-many (fans out); A → C → B is all many-to-one (safe).
+    registry = SemanticRegistry(
+        entities={
+            "a": Entity(
+                name="a",
+                label="A",
+                source="va",
+                joins=[
+                    JoinEdge(to="b", left="k", right="k", cardinality=Cardinality.ONE_TO_MANY),
+                    JoinEdge(to="c", left="ck", right="ck"),
+                ],
+            ),
+            "c": Entity(
+                name="c",
+                label="C",
+                source="vc",
+                joins=[JoinEdge(to="b", left="bk", right="bk")],
+            ),
+            "b": Entity(name="b", label="B", source="vb"),
+        }
+    )
+    path = find_join_path("a", "b", registry)
+    assert [step.to_entity for step in path] == ["c", "b"]  # the safe 2-hop route
+    assert not any(step.fans_out for step in path)

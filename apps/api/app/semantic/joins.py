@@ -48,30 +48,48 @@ def _adjacency(registry: SemanticRegistry) -> dict[str, list[JoinStep]]:
 
 
 def find_join_path(base: str, target: str, registry: SemanticRegistry) -> list[JoinStep]:
-    """The shortest path of join steps from ``base`` to ``target`` (empty if equal)."""
+    """The shortest join path from ``base`` to ``target`` (empty if equal).
+
+    A fan-out-free path is preferred: only when none exists does the search fall back to a
+    path with a fan-out hop (which the compiler then rejects). This way a query is refused
+    only when it truly cannot be answered without inflating the fact, not merely because
+    the shortest path happens to fan out.
+    """
 
     if base == target:
         return []
 
     graph = _adjacency(registry)
+    path = _bfs(graph, base, target, safe_only=True)
+    if path is None:
+        path = _bfs(graph, base, target, safe_only=False)
+    if path is None:
+        raise NoJoinPathError(base, target)
+    return path
+
+
+def _bfs(
+    graph: dict[str, list[JoinStep]], base: str, target: str, *, safe_only: bool
+) -> list[JoinStep] | None:
     came_from: dict[str, JoinStep] = {}
     seen = {base}
     queue = deque([base])
     while queue:
         current = queue.popleft()
         for step in graph.get(current, []):
+            if safe_only and step.fans_out:
+                continue
             if step.to_entity in seen:
                 continue
             seen.add(step.to_entity)
             came_from[step.to_entity] = step
             if step.to_entity == target:
-                queue.clear()
-                break
+                return _reconstruct(came_from, base, target)
             queue.append(step.to_entity)
+    return None
 
-    if target not in came_from:
-        raise NoJoinPathError(base, target)
 
+def _reconstruct(came_from: dict[str, JoinStep], base: str, target: str) -> list[JoinStep]:
     path: list[JoinStep] = []
     node = target
     while node != base:
