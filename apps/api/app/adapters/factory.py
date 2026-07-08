@@ -6,7 +6,10 @@ raise ``ProviderNotConfiguredError``, which the API surfaces as a clear 503 rath
 crash — the honest state until the external dependency is provisioned.
 """
 
+from functools import lru_cache
+
 from app.adapters.data.base import DataSource
+from app.adapters.data.fixture import FixtureDataSource
 from app.adapters.llm.base import LLMProvider
 from app.core.config import Settings
 
@@ -15,7 +18,15 @@ class ProviderNotConfiguredError(Exception):
     """A selected provider cannot be built yet (missing implementation or credentials)."""
 
 
+@lru_cache
+def _fixture_data_source() -> FixtureDataSource:
+    # Seed once per process; the in-memory engine holds the data for the app's lifetime.
+    return FixtureDataSource()
+
+
 def build_data_source(settings: Settings) -> DataSource:
+    if settings.data_source == "fixture":
+        return _fixture_data_source()
     if settings.data_source == "azure_sql":
         raise ProviderNotConfiguredError(
             "Azure SQL data source is not implemented yet "
