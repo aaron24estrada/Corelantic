@@ -6,7 +6,7 @@ raise ``ProviderNotConfiguredError``, which the API surfaces as a clear 503 rath
 crash — the honest state until the external dependency is provisioned.
 """
 
-from functools import lru_cache
+import threading
 
 from app.adapters.data.base import DataSource
 from app.adapters.data.fixture import FixtureDataSource
@@ -18,10 +18,19 @@ class ProviderNotConfiguredError(Exception):
     """A selected provider cannot be built yet (missing implementation or credentials)."""
 
 
-@lru_cache
+_fixture_lock = threading.Lock()
+_fixture: FixtureDataSource | None = None
+
+
 def _fixture_data_source() -> FixtureDataSource:
-    # Seed once per process; the in-memory engine holds the data for the app's lifetime.
-    return FixtureDataSource()
+    # Seed exactly once per process (double-checked lock — concurrent cold-start requests
+    # would otherwise each pay the seed cost); the in-memory engine then holds the data.
+    global _fixture
+    if _fixture is None:
+        with _fixture_lock:
+            if _fixture is None:
+                _fixture = FixtureDataSource()
+    return _fixture
 
 
 def build_data_source(settings: Settings) -> DataSource:

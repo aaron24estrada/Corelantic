@@ -55,6 +55,17 @@ def test_grain_buckets_by_month(fixture_source: FixtureDataSource, registry: Any
     assert all("period" in row and "marketing_spend" in row for row in rows)
 
 
+def test_concurrent_reads_are_safe(fixture_source: FixtureDataSource, registry: Any) -> None:
+    # The shared SQLite connection is lock-serialized; many parallel reads must all succeed.
+    statement = compile_query(QueryIntent(metric="new_leads"), registry)
+
+    async def many() -> list[list[dict[str, Any]]]:
+        return await asyncio.gather(*[fixture_source.run(statement) for _ in range(24)])
+
+    results = asyncio.run(many())
+    assert all(rows == [{"new_leads": 500}] for rows in results)
+
+
 def test_date_range_narrows_the_result(fixture_source: FixtureDataSource, registry: Any) -> None:
     full = _run(fixture_source, QueryIntent(metric="new_leads"), registry)[0]["new_leads"]
     windowed = _run(

@@ -12,6 +12,7 @@ on a worker thread to honour the async contract without blocking the event loop.
 """
 
 import asyncio
+import threading
 from typing import Any
 
 from sqlalchemy import Select, create_engine, text
@@ -29,6 +30,9 @@ class FixtureDataSource:
         self._engine = create_engine(
             "sqlite://", poolclass=StaticPool, connect_args={"check_same_thread": False}
         )
+        # StaticPool shares one physical connection; serialize reads so concurrent
+        # requests (run on worker threads) never use it simultaneously.
+        self._lock = threading.Lock()
         self._seed(leads, seed)
 
     def _seed(self, leads: int, seed: int) -> None:
@@ -48,7 +52,7 @@ class FixtureDataSource:
         return await asyncio.to_thread(self._run, statement)
 
     def _run(self, statement: Select[Any]) -> list[dict[str, object]]:
-        with self._engine.connect() as connection:
+        with self._lock, self._engine.connect() as connection:
             return [dict(row) for row in connection.execute(statement).mappings().all()]
 
     @property
