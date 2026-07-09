@@ -152,6 +152,18 @@ class Dimension(SemanticModel):
         return _reject_blank_synonyms(value)
 
 
+class MeasureFilter(SemanticModel):
+    """Scopes a measure to rows where ``column`` equals ``value``.
+
+    Enables a partial aggregate — a distinct count of leads reaching one funnel stage, say —
+    without an opaque SQL fragment: the column is bound to the measure's entity and the value
+    is a parameter, so the compiler renders it as a portable CASE inside the aggregate.
+    """
+
+    column: str = Field(description="Column on the measure's entity to test.")
+    equals: str | int | float | bool = Field(description="Value the column must equal.")
+
+
 class Measure(SemanticModel):
     """An aggregation over one column of an entity — the aggregate side of a metric.
 
@@ -170,6 +182,9 @@ class Measure(SemanticModel):
     )
     distinct: bool = Field(
         default=False, description="Aggregate distinct values (e.g. count of distinct ids)."
+    )
+    filter: MeasureFilter | None = Field(
+        default=None, description="Scope the aggregate to rows matching this predicate."
     )
 
     @model_validator(mode="after")

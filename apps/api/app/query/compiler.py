@@ -24,15 +24,17 @@ from typing import Any
 from sqlalchemy import (
     ColumnElement,
     Select,
+    case,
     column,
     distinct,
     func,
+    literal,
     select,
     table,
 )
 from sqlalchemy.sql.selectable import FromClause, NamedFromClause, Subquery
 
-from app.query.errors import DateDimensionError
+from app.query.errors import DateDimensionError, FilteredMeasureConflictError
 from app.query.formula import build_formula, safe_divide
 from app.query.intent import QueryIntent
 from app.query.time import DateBucket, DateRange, Grain
@@ -166,14 +168,27 @@ def _references(
         if column_name is not None:
             references[entity].add(column_name)
 
+    sliced = [*group_dimensions, *filter_dimensions]
     for name in measure_names(metric):
         measure = registry.measure(name)
         add(measure.entity, measure.column)
-    for dimension in [*group_dimensions, *filter_dimensions]:
+        if measure.filter is not None:
+            add(measure.entity, measure.filter.column)
+            _reject_slicing_a_filtered_column(metric, measure, sliced)
+    for dimension in sliced:
         add(dimension.entity, dimension.column)
     if date_dimension is not None:
         add(date_dimension.entity, date_dimension.column)
     return references
+
+
+def _reject_slicing_a_filtered_column(
+    metric: Metric, measure: Measure, sliced: list[Dimension]
+) -> None:
+    assert measure.filter is not None
+    for dimension in sliced:
+        if dimension.entity == measure.entity and dimension.column == measure.filter.column:
+            raise FilteredMeasureConflictError(metric.name, dimension.name)
 
 
 def _build_plan(base: str, references: dict[str, set[str]], registry: SemanticRegistry) -> _Plan:
@@ -240,8 +255,14 @@ def _value_expression(
 
 def _measure_expression(measure: Measure, plan: _Plan) -> ColumnElement[Any]:
     if measure.column is None:
-        return func.count()  # count(*)
+        if measure.filter is None:
+            return func.count()  # count(*)
+        return func.count(case((_filter_predicate(measure, plan), literal(1))))
     col = plan.col(measure.entity, measure.column)
+    if measure.filter is not None:
+        # NULL outside the predicate so those rows drop from the aggregate — a portable
+        # partial aggregate (SQL Server has no FILTER clause).
+        col = case((_filter_predicate(measure, plan), col))
     if measure.distinct:
         col = distinct(col)
     if measure.agg is Aggregation.COUNT:
@@ -253,6 +274,12 @@ def _measure_expression(measure: Measure, plan: _Plan) -> ColumnElement[Any]:
     if measure.agg is Aggregation.MIN:
         return func.min(col)
     return func.max(col)  # Aggregation.MAX
+
+
+def _filter_predicate(measure: Measure, plan: _Plan) -> ColumnElement[bool]:
+    assert measure.filter is not None
+    # Identifier from the registry, value bound as a parameter (never interpolated).
+    return plan.col(measure.entity, measure.filter.column) == measure.filter.equals
 
 
 def _window_value(

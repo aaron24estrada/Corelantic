@@ -5,6 +5,23 @@ class CompileError(Exception):
     """Base for query-compilation failures."""
 
 
+class FilteredMeasureConflictError(CompileError):
+    """A metric is sliced by the very column one of its measures already filters on.
+
+    The measure's predicate pins that column, so every other group has an empty aggregate:
+    "voucher rate by stage" reads as 100% for the voucher stage and 0% everywhere else. The
+    question is malformed, not the data — refuse it rather than answer it misleadingly.
+    """
+
+    def __init__(self, metric: str, dimension: str) -> None:
+        super().__init__(
+            f"Metric {metric!r} filters on the column behind dimension {dimension!r}; "
+            "grouping or filtering by it would be meaningless."
+        )
+        self.metric = metric
+        self.dimension = dimension
+
+
 class DateDimensionError(CompileError):
     """A time operation could not resolve which date dimension to use.
 
