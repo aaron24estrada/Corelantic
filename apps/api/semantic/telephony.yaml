@@ -1,0 +1,220 @@
+# Call-center and agent metrics over gold_tspot (zoom_calls, agent_stats).
+#
+# None of this appears on KRW's current dashboard — it is readable upside. Every definition
+# below was verified against the live tables rather than inferred from column names; the
+# comments record what the check found, because several plausible readings were wrong.
+#
+# Neither entity declares a join. zoom_calls carries LeadId, so "calls linked to a lead"
+# needs no join; and joining to cases would make lead_date reachable beside call_date,
+# forcing every call trend to name a date dimension for no gain.
+#
+# PII excluded by construction: caller_did_number, callee_did_number, and phone_norm are
+# phone numbers and are never named here, nor is agents.email. `agent_name` IS exposed, on
+# purpose: agent performance is the point of this domain and KRW's own model surfaces it.
+# That is workforce data, not the claimant PII the exclusion rule protects.
+#
+# Grain: a zoom_calls row is a call leg, not a call (92,741 rows, 82,868 distinct call_id).
+# Every count and rate below is at leg grain; `unique_calls` is the distinct-call count.
+#
+# Coverage note: zoom_calls spans 2026-01-01..2026-07-09 and agent_stats 2025-12-29..
+# 2026-07-06 — a recent window, not the 2023-2026 span of the lead tables.
+
+entities:
+  zoom_calls:
+    label: "Calls"
+    source: gold_tspot.zoom_calls
+  agent_stats:
+    label: "Agent performance"
+    source: gold_tspot.agent_stats
+
+dimensions:
+  call_direction:
+    label: "Direction"
+    entity: zoom_calls
+    column: direction
+    members: ["inbound", "outbound"]
+  call_result:
+    label: "Call result"
+    entity: zoom_calls
+    column: call_result
+    members: ["connected", "answered", "hang_up", "no_answer", "abandoned", "voicemail", "blocked"]
+    synonyms: ["disposition"]
+  call_region:
+    label: "Call region"
+    entity: zoom_calls
+    column: region
+    members: ["SAN", "HOU", "REMOTE", "ABL", "AUS", "ODS", "NOLA", "BMT", "BRM"]
+  call_agent:
+    label: "Agent (calls)"
+    entity: zoom_calls
+    column: agent_name
+  call_site:
+    label: "Site"
+    entity: zoom_calls
+    column: site_name
+  call_date:
+    label: "Call date"
+    entity: zoom_calls
+    column: call_date
+    date_role: call
+  agent:
+    label: "Agent"
+    entity: agent_stats
+    column: agent_name
+    synonyms: ["rep"]
+  agent_region:
+    label: "Agent region"
+    entity: agent_stats
+    column: region
+  agent_week:
+    label: "Agent week"
+    entity: agent_stats
+    column: week_start
+    date_role: agent_week
+
+measures:
+  call_count:
+    entity: zoom_calls
+    agg: count
+  # 92,741 rows but 82,868 distinct call_id: a row is a call leg (or carries no call_id).
+  # Both are exposed rather than guessing which one KRW's "Total Calls" means.
+  unique_call_count:
+    entity: zoom_calls
+    agg: count
+    column: call_id
+    distinct: true
+  inbound_call_count:
+    entity: zoom_calls
+    agg: count
+    filter: {column: direction, equals: "inbound"}
+  outbound_call_count:
+    entity: zoom_calls
+    agg: count
+    filter: {column: direction, equals: "outbound"}
+  # A call was picked up exactly when it has an answer_time, and COUNT skips NULLs. Verified:
+  # every no_answer and voicemail is null, while 3,541 hang_up calls are not — they were
+  # answered, then hung up. Filtering call_result = 'answered' would miss the larger
+  # 'connected' bucket and understate the rate roughly fourfold.
+  answered_call_count:
+    entity: zoom_calls
+    agg: count
+    column: answer_time
+  queue_routed_call_count:
+    entity: zoom_calls
+    agg: count
+    filter: {column: is_queue_routed, equals: 1}
+  spam_call_count:
+    entity: zoom_calls
+    agg: count
+    filter: {column: spam, equals: "maybe_spam"}
+  # LeadId is null on unlinked calls, and COUNT skips nulls.
+  linked_call_count:
+    entity: zoom_calls
+    agg: count
+    column: LeadId
+  avg_duration_seconds:
+    entity: zoom_calls
+    agg: avg
+    column: duration
+  avg_wait_seconds:
+    entity: zoom_calls
+    agg: avg
+    column: wait_time_sec
+  leads_contacted_total:
+    entity: agent_stats
+    agg: sum
+    column: leads_contacted
+  leads_converted_total:
+    entity: agent_stats
+    agg: sum
+    column: leads_converted
+
+metrics:
+  total_calls:
+    label: "Total calls"
+    description: "Call records in the period (a row is a call leg)."
+    measure: call_count
+    synonyms: ["calls"]
+  unique_calls:
+    label: "Unique calls"
+    description: "Distinct call ids in the period."
+    measure: unique_call_count
+  inbound_calls:
+    label: "Inbound calls"
+    description: "Calls received."
+    measure: inbound_call_count
+  outbound_calls:
+    label: "Outbound calls"
+    description: "Calls placed."
+    measure: outbound_call_count
+  calls_answered:
+    label: "Calls answered"
+    description: "Call legs that were picked up (they carry an answer time)."
+    measure: answered_call_count
+  answer_rate:
+    type: ratio
+    label: "Answer rate %"
+    description: "Share of call legs that were picked up."
+    numerator: answered_call_count
+    denominator: call_count
+    format: percent
+  queue_routed_calls:
+    label: "Queue routed calls"
+    description: "Calls routed through a queue."
+    measure: queue_routed_call_count
+  spam_calls:
+    label: "Spam calls"
+    description: "Calls flagged as likely spam."
+    measure: spam_call_count
+  calls_linked_to_lead:
+    label: "Calls linked to a lead"
+    description: "Call legs attached to a lead record."
+    measure: linked_call_count
+  call_to_lead_rate:
+    type: ratio
+    label: "Call to lead rate %"
+    description: "Share of call legs attached to a lead."
+    numerator: linked_call_count
+    denominator: call_count
+    format: percent
+  avg_call_duration_min:
+    type: derived
+    label: "Avg call duration (min)"
+    description: "Mean call length in minutes."
+    measures: ["avg_duration_seconds"]
+    expression: "avg_duration_seconds / 60"
+  avg_wait_time_sec:
+    label: "Avg wait time (sec)"
+    description: "Mean time a caller waited before pickup."
+    measure: avg_wait_seconds
+  calls_wow_pct:
+    type: comparison
+    label: "Calls WoW %"
+    description: "Week-over-week percent change in calls."
+    measure: call_count
+    period: wow
+    kind: pct
+    format: percent
+  calls_mtd:
+    type: cumulative
+    label: "Calls MTD"
+    description: "Month-to-date running total of calls."
+    measure: call_count
+    window: mtd
+  leads_contacted:
+    label: "Leads contacted"
+    description: "Leads agents reached out to."
+    measure: leads_contacted_total
+  leads_converted:
+    label: "Leads converted"
+    description: "Leads agents converted."
+    measure: leads_converted_total
+  # Pooled, never the mean of agent_stats.conversion_rate_pct: that column is a per-agent,
+  # per-week rate, and averaging ratios gives 2.65% where the true pooled rate is 4.44%.
+  agent_conversion_rate:
+    type: ratio
+    label: "Agent conversion rate %"
+    description: "Leads converted over leads contacted, pooled across agents and weeks."
+    numerator: leads_converted_total
+    denominator: leads_contacted_total
+    format: percent

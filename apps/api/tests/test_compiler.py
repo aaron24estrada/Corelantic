@@ -88,6 +88,9 @@ def _registry() -> SemanticRegistry:
                 agg=Aggregation.COUNT,
                 filter=MeasureFilter(column="name", equals="Voucher"),
             ),
+            "linked_count": Measure(
+                name="linked_count", entity="stages", agg=Aggregation.COUNT, column="lead_id"
+            ),
         },
         metrics={
             "new_leads": SimpleMetric(
@@ -145,6 +148,9 @@ def _registry() -> SemanticRegistry:
             ),
             "voucher_rows": SimpleMetric(
                 name="voucher_rows", label="Voucher rows", description="x", measure="stage_rows"
+            ),
+            "linked_calls": SimpleMetric(
+                name="linked_calls", label="Linked", description="x", measure="linked_count"
             ),
             "leads_per_case": RatioMetric(
                 name="leads_per_case",
@@ -208,6 +214,14 @@ def test_columns_are_table_qualified() -> None:
         "WHERE leads.metro = :metro_1 GROUP BY leads.channel"
     )
     assert params == {"metro_1": "Houston"}
+
+
+def test_count_with_a_column_counts_non_nulls_not_rows() -> None:
+    # Several metrics lean on this: count(answer_time) is "calls picked up", count(LeadId)
+    # is "calls linked to a lead". A count measure with a column must not become count(*).
+    sql, _ = _rendered(compile_query(QueryIntent(metric="linked_calls"), _registry()))
+    assert "count(stages.lead_id)" in sql
+    assert "count(*)" not in sql
 
 
 def test_sum_measure_qualifies_its_column() -> None:

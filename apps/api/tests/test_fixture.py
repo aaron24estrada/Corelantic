@@ -7,9 +7,10 @@ import pytest
 from app.adapters.data.fixture import FixtureDataSource
 from app.core.config import get_settings
 from app.query.compiler import compile_query
+from app.query.errors import DateDimensionError
 from app.query.intent import QueryIntent
 from app.query.time import DateRange, Grain
-from app.semantic.errors import JoinFanOutError
+from app.semantic.errors import JoinFanOutError, NoJoinPathError
 from app.semantic.registry import load_registry
 
 _CHANNELS = {
@@ -121,6 +122,93 @@ def test_lead_metric_grouped_by_stage_is_rejected(registry: Any) -> None:
     # cases → stages is one_to_many; joining would inflate the lead count, so refuse it.
     with pytest.raises(JoinFanOutError):
         compile_query(QueryIntent(metric="new_leads", group_by=["stage_name"]), registry)
+
+
+def _value(source: FixtureDataSource, metric: str, registry: Any) -> float:
+    return float(_run(source, QueryIntent(metric=metric), registry)[0][metric])
+
+
+def test_call_direction_splits_sum_to_total(
+    fixture_source: FixtureDataSource, registry: Any
+) -> None:
+    total = _value(fixture_source, "total_calls", registry)
+    inbound = _value(fixture_source, "inbound_calls", registry)
+    outbound = _value(fixture_source, "outbound_calls", registry)
+    assert inbound + outbound == total
+
+
+def test_answered_calls_come_from_answer_time_not_the_disposition(
+    fixture_source: FixtureDataSource, registry: Any
+) -> None:
+    # A call was picked up exactly when it has an answer_time, and COUNT skips NULLs. Some
+    # hang_up calls were answered first, so this must exceed a call_result='answered' count.
+    answered = _value(fixture_source, "calls_answered", registry)
+    total = _value(fixture_source, "total_calls", registry)
+    intent = QueryIntent(metric="total_calls", group_by=["call_result"])
+    by_result = _run(fixture_source, intent, registry)
+    disposition = next(int(r["total_calls"]) for r in by_result if r["call_result"] == "answered")
+    assert disposition < answered < total
+    assert 0.75 < _value(fixture_source, "answer_rate", registry) < 0.85  # ~80.9% in the source
+
+
+def test_calls_linked_to_lead_skips_unlinked_calls(
+    fixture_source: FixtureDataSource, registry: Any
+) -> None:
+    # LeadId is NULL on unlinked calls; count(LeadId) drops them without a join.
+    linked = _value(fixture_source, "calls_linked_to_lead", registry)
+    assert 0 < linked < _value(fixture_source, "total_calls", registry)
+    assert 0.42 < _value(fixture_source, "call_to_lead_rate", registry) < 0.58  # ~50.8%
+
+
+def test_unique_calls_never_exceeds_call_rows(
+    fixture_source: FixtureDataSource, registry: Any
+) -> None:
+    # A row is a call leg: distinct call_id is at most the row count, ~89% of it.
+    unique = _value(fixture_source, "unique_calls", registry)
+    total = _value(fixture_source, "total_calls", registry)
+    assert unique <= total
+    assert 0.82 < unique / total < 0.95
+
+
+def test_call_duration_is_seconds_not_milliseconds(
+    fixture_source: FixtureDataSource, registry: Any
+) -> None:
+    # duration averages ~114s in the source; read as milliseconds this tile is 1000x wrong.
+    assert 1.2 < _value(fixture_source, "avg_call_duration_min", registry) < 2.6
+
+
+def test_agent_conversion_is_pooled_not_a_mean_of_rates(
+    fixture_source: FixtureDataSource, registry: Any
+) -> None:
+    # sum(converted)/sum(contacted), not avg(conversion_rate_pct) — averaging ratios reads
+    # 2.65% against a true 4.44% in the source.
+    contacted = _value(fixture_source, "leads_contacted", registry)
+    converted = _value(fixture_source, "leads_converted", registry)
+    rate = _value(fixture_source, "agent_conversion_rate", registry)
+    assert rate == pytest.approx(converted / contacted)
+    assert 0.03 < rate < 0.06  # pooled 4.44% in the source
+
+
+def test_call_metrics_cannot_reach_the_lead_tables(registry: Any) -> None:
+    # zoom_calls declares no join, on purpose: reaching cases would make lead_date compete
+    # with call_date and force every call trend to name a date dimension.
+    with pytest.raises(NoJoinPathError):
+        compile_query(QueryIntent(metric="total_calls", group_by=["channel"]), registry)
+    with pytest.raises(DateDimensionError):
+        compile_query(
+            QueryIntent(metric="total_calls", grain=Grain.MONTH, date_dimension="lead_date"),
+            registry,
+        )
+
+
+def test_call_metrics_trend_on_the_call_date(
+    fixture_source: FixtureDataSource, registry: Any
+) -> None:
+    # zoom_calls declares no join, so call_date is the only reachable date: no ambiguity.
+    total = _value(fixture_source, "total_calls", registry)
+    rows = _run(fixture_source, QueryIntent(metric="total_calls", grain=Grain.MONTH), registry)
+    assert len(rows) > 1
+    assert sum(int(row["total_calls"]) for row in rows) == total
 
 
 def test_grain_buckets_by_month(fixture_source: FixtureDataSource, registry: Any) -> None:
