@@ -1,0 +1,245 @@
+Name, Type
+_KPIs, Table
+Agent Conversion, Measure
+Leads, Measure
+Marketing Spend, Measure
+Revenue KPIs, Measure
+ROAS KPI, Measure
+Voucher, Measure
+x, Aggregation
+_Measures, Table
+Agent Conversion Rate %, Measure
+Answer Rate %, Measure
+Avg Agent Conversion Rate %, Measure
+Avg Call Duration (min), Measure
+Avg Case Fee, Measure
+Avg Cost per Spot, Measure
+Avg Days in B-Read Stage, Measure
+Avg Days in Voucher Stage, Measure
+Avg Days in XRay Stage, Measure
+Avg Days Lead to Bank Complete, Measure
+Avg Days to B-Read, Measure
+Avg Days to Bank Complete, Measure
+Avg Days to Voucher, Measure
+Avg Days to XRay, Measure
+Avg Wait Time (sec), Measure
+Bank Complete Rate %, Measure
+Call to Lead Rate %, Measure
+Calls Answered, Measure
+Calls Linked to Lead, Measure
+Calls MTD, Measure
+Calls Prior Week, Measure
+Calls WoW %, Measure
+Calls WoW Change, Measure
+Cost per Lead, Measure
+Date filer check, Measure
+Inbound Calls, Measure
+Leads (stages), Measure
+Leads by State, Measure
+Leads Contacted, Measure
+Leads Converted, Measure
+Leads MoM %, Measure
+Leads MoM Change, Measure
+Leads MTD, Measure
+Leads Prior Month, Measure
+Leads Prior Week, Measure
+Leads Reached B-Read, Measure
+Leads Reached Bank Complete, Measure
+Leads Reached Bank Incomplete, Measure
+Leads Reached Sched for Clinic, Measure
+Leads Reached Voucher, Measure
+Leads Reached Voucher MTD, Measure
+Leads Reached XRay, Measure
+Leads WoW %, Measure
+Leads WoW Change, Measure
+Leads YTD, Measure
+Marketing Spend Prior Week, Measure
+Marketing Spend WoW %, Measure
+Marketing Spend WoW Change, Measure
+Outbound Calls, Measure
+Queue Routed Calls, Measure
+Revenue, Measure
+Revenue KPI, Measure
+Revenue KPI Prior Week, Measure
+Revenue KPI WoW %, Measure
+Revenue KPI WoW Change, Measure
+ROAS, Measure
+ROAS Prior Week, Measure
+ROAS WoW %, Measure
+ROAS WoW Change, Measure
+Spam Calls, Measure
+Top Agent Conversion Rate %, Measure
+Total Calls, Measure
+Total Leads, Measure
+Total Spend, Measure
+Total Spot Count, Measure
+Voucher Rate %, Measure
+Vouchers, Measure
+Vouchers Prior Week, Measure
+Vouchers WoW %, Measure
+Vouchers WoW Change, Measure
+x, Aggregation
+XRay Rate %, Measure
+agent_stats, Table
+agent_ext_id, Column
+agent_name, Column
+conversion_rate_pct, Aggregation
+leads_contacted, Aggregation
+leads_converted, Aggregation
+metadata_loaded_at, Column
+region, Column
+week_end, Column
+week_start, Column
+cases, Table
+Assignee, Column
+BestPhone, Column
+CaseType, Column
+Contact_Age, Aggregation
+Contact_CellPhone, Column
+Contact_Gender, Column
+Contact_HomePhone, Column
+Contact_Language_Id, Aggregation
+Contact_Language_Name, Column
+Contact_MaritalStatus_Id, Aggregation
+Contact_MaritalStatus_Name, Column
+Contact_Nature_Id, Aggregation
+Contact_Nature_Name, Column
+Contact_WorkPhone, Column
+CreateDate, Column
+LeadId, Column
+metadata_created_at, Column
+metadata_loaded_at, Column
+metadata_updated_at, Column
+Milestone, Column
+Owner, Column
+primary_contact_type, Column
+source_category, Column
+Source_Name, Column
+Status, Column
+UpdateDate, Column
+DimDate, Table
+Date, Column
+Date Range, Measure
+Day, Column
+MonthName, Column
+MonthNo, Aggregation
+MonthStart, Column
+Quarter, Column
+QuarterStart, Column
+WeekStart, Column
+Year, Aggregation
+YearMonth, Column
+YearQuarter, Column
+geo, Table
+City, Column
+City_State, Column
+County, Column
+lat, Aggregation
+LeadId, Column
+lon, Aggregation
+metadata_loaded_at, Column
+State, Column
+State_Name, Column
+Zip, Column
+marketing_budget, Table
+Budget per Market, Aggregation
+city_code, Column
+city_state, Column
+date, Column
+sheet, Column
+state, Column
+referral_date, Table
+Date, Column
+Day, Column
+Month, Column
+MonthStart, Column
+Quarter, Column
+Ref Date Range, Measure
+WeekStart, Column
+Year, Aggregation
+YearMonth, Column
+referral_leads, Table
+Age, Aggregation
+came_back_flag, Column
+came_back_reason, Column
+cancer_confirmed, Column
+cancer_type, Column
+CancerConfirmed, Column
+CancerConfirmed_2, Column
+CancerType, Column
+CancerType_2, Column
+CaseType, Column
+City, Column
+City_State, Column
+County, Column
+CreateDate, Column
+CurrentMilestone, Column
+CurrentStatus, Column
+days_lead_to_referral, Aggregation
+EstimatedCaseValue_Excel, Aggregation
+firm_match, Column
+FirstName, Column
+Gender, Column
+history_n, Aggregation
+history_truncated, Column
+ImpairmentLevel, Column
+is_deceased, Column
+LastName, Column
+lat, Aggregation
+LeadCreatedDate_Excel, Column
+LeadId, Column
+LeadProgress, Aggregation
+loaded_at, Column
+lon, Aggregation
+MaritalStatus, Column
+OurFirmFeeAmount_Excel, Column
+ReferralDate, Column
+ReferralFirm_Excel, Column
+ReferralFirm_History, Column
+ReferralFirmFeeAmount_Excel, Column
+ReferralFirmStatus_Excel, Column
+Referrals, Measure
+Referrals KPI, Measure
+source_category, Column
+State, Column
+State_Name, Column
+Tags, Column
+voucher_date, Column
+voucher_signal, Column
+WhatIsTheCancerType, Column
+referral_stage_durations, Table
+DateCompleted, Column
+DaysInStage, Aggregation
+DaysToStage, Aggregation
+LeadId, Column
+loaded_at, Column
+Ordered_StageName, Column
+PreviousStageCompleted, Column
+StageName, Column
+StageOrder, Aggregation
+referral_stages, Table
+DateCompleted, Column
+LeadId, Column
+loaded_at, Column
+milestone_complete, Column
+Ordered_StageName, Column
+StageName, Column
+StageOrder, Aggregation
+stages, Table
+DateCompleted, Column
+Lead_stage, Column
+LeadId, Column
+metadata_created_at, Column
+metadata_loaded_at, Column
+metadata_updated_at, Column
+milestone_complete, Aggregation
+StageName, Column
+StageOrder, Aggregation
+Trend Level, Table
+Trend Level, Column
+Trend Level Fields, Column
+Trend Level Order, Aggregation
+Trend Levels, Table
+Trend Levels, Column
+Trend Levels Fields, Column
+Trend Levels Order, Aggregation
