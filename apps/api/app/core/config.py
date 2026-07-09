@@ -6,6 +6,7 @@ All variables use the ``CORELANTIC_API_`` prefix, e.g. ``CORELANTIC_API_PORT=808
 from functools import lru_cache
 from pathlib import Path
 
+from pydantic import SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 # apps/api, the directory that holds this package and the semantic registry.
@@ -34,6 +35,16 @@ class Settings(BaseSettings):
     database_url: str | None = None
     # Credentials for the LLM provider. None until provisioned.
     anthropic_api_key: str | None = None
+
+    # Azure SQL data source (read-only, Entra auth). None until provisioned.
+    azure_sql_server: str | None = None
+    azure_sql_database: str | None = None
+    azure_sql_odbc_driver: str = "ODBC Driver 18 for SQL Server"
+    # "device_code" (interactive dev) or "service_principal" (headless/prod).
+    azure_sql_auth_mode: str = "device_code"
+    azure_sql_tenant_id: str | None = None
+    azure_sql_client_id: str | None = None
+    azure_sql_client_secret: SecretStr | None = None
 
     # Directory holding the semantic registry (metric and dimension definitions).
     semantic_dir: Path = PACKAGE_ROOT / "semantic"
