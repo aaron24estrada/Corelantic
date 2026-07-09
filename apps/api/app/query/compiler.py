@@ -205,10 +205,13 @@ def _build_plan(base: str, references: dict[str, set[str]], registry: SemanticRe
 
     from_clause: FromClause = tables[base]
     for step in steps:
+        # Outer, not inner: facts with no dimension row (e.g. leads lacking geo) must
+        # survive. Safe because fan-out hops are already rejected above.
         from_clause = from_clause.join(
             tables[step.to_entity],
             tables[step.from_entity].c[step.from_column]
             == tables[step.to_entity].c[step.to_column],
+            isouter=True,
         )
     return _Plan(tables=tables, from_clause=from_clause)
 
