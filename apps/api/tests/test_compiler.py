@@ -159,6 +159,13 @@ def _registry() -> SemanticRegistry:
             "stage_name": Dimension(
                 name="stage_name", label="Stage", entity="stages", column="name"
             ),
+            "stage_date": Dimension(
+                name="stage_date",
+                label="Stage date",
+                entity="stages",
+                column="completed_at",
+                date_role="stage",
+            ),
             "attorney": Dimension(
                 name="attorney", label="Attorney", entity="cases", column="attorney"
             ),
@@ -299,6 +306,49 @@ def test_filtered_measure_can_still_be_sliced_by_another_dimension() -> None:
     sql, _ = _rendered(compile_query(intent, _registry()))
     assert "count(DISTINCT CASE WHEN" in sql
     assert "GROUP BY leads.channel" in sql
+
+
+def test_date_dimension_on_a_safely_joined_entity_is_allowed() -> None:
+    # A funnel metric lives on stages but trends by the lead's intake date on leads —
+    # reachable many-to-one, so joining it neither fans out nor changes the aggregate.
+    intent = QueryIntent(metric="vouchers", grain=Grain.MONTH, date_dimension="lead_date")
+    sql, _ = _rendered(compile_query(intent, _registry()))
+    assert "date_trunc('month', leads.created_at)" in sql
+    assert "FROM analytics.v_stages AS stages LEFT OUTER JOIN analytics.v_leads AS leads" in sql
+
+
+def test_date_dimension_across_a_fan_out_join_is_rejected() -> None:
+    # leads → stages fans out; bucketing a lead metric by a stage date would inflate it.
+    intent = QueryIntent(metric="new_leads", grain=Grain.MONTH, date_dimension="stage_date")
+    with pytest.raises(DateDimensionError):
+        compile_query(intent, _registry())
+
+
+def test_ambiguous_date_dimensions_must_be_named() -> None:
+    # stages owns stage_date and can also reach lead_date. Which one a trend means changes
+    # the answer, so refuse to guess — never silently re-anchor on the base's own date.
+    intent = QueryIntent(metric="vouchers", grain=Grain.MONTH)
+    with pytest.raises(DateDimensionError):
+        compile_query(intent, _registry())
+
+
+def test_date_range_on_a_joined_date_filters_the_joined_column() -> None:
+    # An unmatched (NULL) joined date is excluded by a range — the same, correct semantics
+    # as a NULL date column: a row we cannot date is in no date window.
+    intent = QueryIntent(
+        metric="vouchers",
+        date_dimension="lead_date",
+        date_range=DateRange(start=date(2026, 1, 1), end=date(2026, 3, 31)),
+    )
+    sql, params = _rendered(compile_query(intent, _registry()))
+    assert "WHERE leads.created_at >= :created_at_1 AND leads.created_at < :created_at_2" in sql
+    assert params["created_at_1"] == date(2026, 1, 1)
+
+
+def test_temporal_metrics_exclude_undated_rows() -> None:
+    # A NULL bucket would sort ahead of every real period and LAG would read across it.
+    sql, _ = _rendered(compile_query(QueryIntent(metric="leads_wow_pct"), _registry()))
+    assert "leads.created_at IS NOT NULL" in sql
 
 
 def test_filter_column_is_added_to_the_plan_and_qualified() -> None:

@@ -88,6 +88,27 @@ def test_voucher_rate_matches_the_source_ballpark(
     assert 0.18 < float(row["voucher_rate"]) < 0.30  # ~24% in the real funnel
 
 
+def test_funnel_trends_by_the_joined_lead_date(
+    fixture_source: FixtureDataSource, registry: Any
+) -> None:
+    # stages has no date of its own; the compiler reaches cases.CreateDate many-to-one. Each
+    # lead sits in exactly one bucket, so the months must sum back to the ungrouped total.
+    total = int(_run(fixture_source, QueryIntent(metric="vouchers"), registry)[0]["vouchers"])
+    rows = _run(fixture_source, QueryIntent(metric="vouchers", grain=Grain.MONTH), registry)
+    assert len(rows) > 1
+    assert sum(int(row["vouchers"]) for row in rows) == total
+
+
+def test_funnel_respects_a_date_range(fixture_source: FixtureDataSource, registry: Any) -> None:
+    full = _run(fixture_source, QueryIntent(metric="vouchers"), registry)[0]["vouchers"]
+    windowed = _run(
+        fixture_source,
+        QueryIntent(metric="vouchers", date_range=DateRange(start=date(2026, 1, 1))),
+        registry,
+    )[0]["vouchers"]
+    assert 0 < int(windowed) < int(full)
+
+
 def test_lead_metric_grouped_by_stage_is_rejected(registry: Any) -> None:
     # cases → stages is one_to_many; joining would inflate the lead count, so refuse it.
     with pytest.raises(JoinFanOutError):
