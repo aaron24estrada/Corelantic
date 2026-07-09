@@ -70,7 +70,11 @@ Gated: spend/referrals registry (#37), NL agent wiring (E1), auth (O-4), chart c
 ## Working agreements that paid off
 
 - **Probe the database before authoring a metric.** Three definitions that looked obvious from column names were wrong by 4×, 1000×, and 2×. The probes cost minutes; the errors would have been invisible on a dashboard.
-- **Run a codex architectural pass on every PR** (`codex exec --sandbox read-only --skip-git-repo-check`). It caught four bugs that would have shipped silently: a Sunday-boundary week bucket in SQL Server, `LAG` reading across a NULL period, a registry constant shadowing a measure, and a derived formula selecting an unaggregated literal.
+- **Run a codex architectural pass on every PR.** It caught five bugs that would have shipped silently: a Sunday-boundary week bucket in SQL Server, `LAG` reading across a NULL period, a registry constant shadowing a measure, a derived formula selecting an unaggregated literal, and a dark-mode focus ring that vanished while a button was held down. Redirect stdin or it hangs forever on `Reading additional input from stdin...`, and never pipe it through `tail` — `tail` buffers until the stream closes, so a hung run and a working one look identical:
+
+  ```bash
+  codex exec --sandbox read-only --skip-git-repo-check "$(cat prompt.txt)" < /dev/null > codex.log 2>&1
+  ```
 - **The fixture mirrors the real schema.** One registry serves both, so a fixture test is a real test. Fixture reproduces the source: 86,973 leads, 38.3% no-geo, voucher rate 24.1%, answer rate 80.86%, agent conversion 4.44%.
 
 ## Running it locally
