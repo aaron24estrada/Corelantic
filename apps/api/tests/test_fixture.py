@@ -9,6 +9,7 @@ from app.core.config import get_settings
 from app.query.compiler import compile_query
 from app.query.intent import QueryIntent
 from app.query.time import DateRange, Grain
+from app.semantic.errors import JoinFanOutError
 from app.semantic.registry import load_registry
 
 _CHANNELS = {
@@ -62,6 +63,35 @@ def test_group_by_state_keeps_leads_without_geo(
     assert "TX" in states
     assert None in states  # leads with no geo survive as a NULL group
     assert sum(int(row["new_leads"]) for row in rows) == 500
+
+
+def test_funnel_stages_drop_off_monotonically(
+    fixture_source: FixtureDataSource, registry: Any
+) -> None:
+    reached = [
+        int(_run(fixture_source, QueryIntent(metric=metric), registry)[0][metric])
+        for metric in (
+            "vouchers",
+            "leads_reached_xray",
+            "leads_reached_bread",
+            "leads_reached_bank_complete",
+        )
+    ]
+    assert reached[0] < 500  # not every lead reaches voucher
+    assert reached == sorted(reached, reverse=True)  # each stage is a subset of the prior
+
+
+def test_voucher_rate_matches_the_source_ballpark(
+    fixture_source: FixtureDataSource, registry: Any
+) -> None:
+    [row] = _run(fixture_source, QueryIntent(metric="voucher_rate"), registry)
+    assert 0.18 < float(row["voucher_rate"]) < 0.30  # ~24% in the real funnel
+
+
+def test_lead_metric_grouped_by_stage_is_rejected(registry: Any) -> None:
+    # cases → stages is one_to_many; joining would inflate the lead count, so refuse it.
+    with pytest.raises(JoinFanOutError):
+        compile_query(QueryIntent(metric="new_leads", group_by=["stage_name"]), registry)
 
 
 def test_grain_buckets_by_month(fixture_source: FixtureDataSource, registry: Any) -> None:

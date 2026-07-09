@@ -5,7 +5,7 @@ import pytest
 from sqlalchemy import Select
 
 from app.query.compiler import compile_query
-from app.query.errors import DateDimensionError
+from app.query.errors import DateDimensionError, FilteredMeasureConflictError
 from app.query.intent import QueryIntent
 from app.query.time import DateRange, Grain
 from app.semantic.errors import (
@@ -28,6 +28,7 @@ from app.semantic.models import (
     Entity,
     JoinEdge,
     Measure,
+    MeasureFilter,
     MetricFormat,
     RatioMetric,
     SemanticRegistry,
@@ -72,6 +73,20 @@ def _registry() -> SemanticRegistry:
                 name="revenue_total", entity="leads", agg=Aggregation.SUM, column="revenue"
             ),
             "case_count": Measure(name="case_count", entity="cases", agg=Aggregation.COUNT),
+            "voucher_reached": Measure(
+                name="voucher_reached",
+                entity="stages",
+                agg=Aggregation.COUNT,
+                column="lead_id",
+                distinct=True,
+                filter=MeasureFilter(column="name", equals="Voucher"),
+            ),
+            "stage_rows": Measure(
+                name="stage_rows",
+                entity="stages",
+                agg=Aggregation.COUNT,
+                filter=MeasureFilter(column="name", equals="Voucher"),
+            ),
         },
         metrics={
             "new_leads": SimpleMetric(
@@ -115,6 +130,12 @@ def _registry() -> SemanticRegistry:
                 description="x",
                 measure="lead_count",
                 period=ComparisonPeriod.WOW,
+            ),
+            "vouchers": SimpleMetric(
+                name="vouchers", label="Vouchers", description="x", measure="voucher_reached"
+            ),
+            "voucher_rows": SimpleMetric(
+                name="voucher_rows", label="Voucher rows", description="x", measure="stage_rows"
             ),
             "leads_per_case": RatioMetric(
                 name="leads_per_case",
@@ -237,6 +258,54 @@ def test_filter_on_a_joined_dimension_still_constrains() -> None:
     assert "LEFT OUTER JOIN analytics.v_geo AS geo" in sql
     assert "WHERE geo.state = :state_1" in sql
     assert params == {"state_1": "TX"}
+
+
+# --- filtered measures ----------------------------------------------------------------
+
+
+def test_filtered_measure_scopes_the_aggregate_with_a_case() -> None:
+    # SQL Server has no FILTER clause, so the predicate becomes a CASE inside the aggregate:
+    # rows outside it are NULL and drop out. Distinct still applies to the CASE result.
+    sql, params = _rendered(compile_query(QueryIntent(metric="vouchers"), _registry()))
+    assert "count(DISTINCT CASE WHEN (stages.name = :name_1) THEN stages.lead_id END)" in sql
+    assert params == {"name_1": "Voucher"}
+
+
+def test_filtered_measure_value_is_bound_never_interpolated() -> None:
+    sql, params = _rendered(compile_query(QueryIntent(metric="vouchers"), _registry()))
+    assert "Voucher" not in sql  # the value reaches SQL only as a bound parameter
+    assert params["name_1"] == "Voucher"
+
+
+def test_filtered_count_of_rows_counts_a_case() -> None:
+    # count(*) has no column; filtered, it counts a CASE that is 1 where the predicate holds.
+    sql, _ = _rendered(compile_query(QueryIntent(metric="voucher_rows"), _registry()))
+    assert "count(CASE WHEN (stages.name = :name_1) THEN :param_1 END)" in sql
+
+
+def test_slicing_by_a_filtered_column_is_rejected() -> None:
+    # "vouchers by stage" is malformed: the filter pins the stage, so every other group is
+    # empty. Refuse it rather than answer 100% / 0%.
+    with pytest.raises(FilteredMeasureConflictError):
+        compile_query(QueryIntent(metric="vouchers", group_by=["stage_name"]), _registry())
+    filtered = QueryIntent(metric="vouchers", filters={"stage_name": "Voucher"})
+    with pytest.raises(FilteredMeasureConflictError):
+        compile_query(filtered, _registry())
+
+
+def test_filtered_measure_can_still_be_sliced_by_another_dimension() -> None:
+    # Vouchers by channel is the useful case: stages → leads is many_to_one, so it joins.
+    intent = QueryIntent(metric="vouchers", group_by=["channel"])
+    sql, _ = _rendered(compile_query(intent, _registry()))
+    assert "count(DISTINCT CASE WHEN" in sql
+    assert "GROUP BY leads.channel" in sql
+
+
+def test_filter_column_is_added_to_the_plan_and_qualified() -> None:
+    # The predicate's column is not the aggregated one; it must still be bound to its table.
+    sql, _ = _rendered(compile_query(QueryIntent(metric="vouchers"), _registry()))
+    assert "FROM analytics.v_stages AS stages" in sql
+    assert "stages.name" in sql and "stages.lead_id" in sql
 
 
 # --- ratio / derived ------------------------------------------------------------------

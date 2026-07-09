@@ -22,9 +22,18 @@ entities:
         left: LeadId
         right: LeadId
         cardinality: many_to_one
+      # Many stage rows per case (the milestone history) — one_to_many, so the compiler
+      # rejects grouping a case metric by a stage dimension rather than fanning out.
+      - to: stages
+        left: LeadId
+        right: LeadId
+        cardinality: one_to_many
   geo:
     label: "Geography"
     source: gold_tspot.geo
+  stages:
+    label: "Funnel stages"
+    source: gold_tspot.stages
 
 dimensions:
   channel:
@@ -51,6 +60,11 @@ dimensions:
     entity: geo
     column: State
     synonyms: ["province"]
+  stage_name:
+    label: "Funnel stage"
+    entity: stages
+    column: StageName
+    synonyms: ["stage", "milestone"]
 
 measures:
   lead_count:
@@ -61,6 +75,38 @@ measures:
     agg: count
     column: LeadId
     distinct: true
+  # Funnel measures live on `stages`: every lead has a "Lead" stage row, so a distinct
+  # count of LeadId over all stages equals total leads — the denominator for stage rates.
+  # Each stage-reached count is that distinct count scoped to one StageName.
+  stage_leads:
+    entity: stages
+    agg: count
+    column: LeadId
+    distinct: true
+  voucher_reached:
+    entity: stages
+    agg: count
+    column: LeadId
+    distinct: true
+    filter: {column: StageName, equals: "Voucher (Initial Intake)"}
+  xray_reached:
+    entity: stages
+    agg: count
+    column: LeadId
+    distinct: true
+    filter: {column: StageName, equals: "X-Ray Received"}
+  bread_reached:
+    entity: stages
+    agg: count
+    column: LeadId
+    distinct: true
+    filter: {column: StageName, equals: "B-Read Results"}
+  bank_complete_reached:
+    entity: stages
+    agg: count
+    column: LeadId
+    distinct: true
+    filter: {column: StageName, equals: "Bank Complete"}
 
 metrics:
   new_leads:
@@ -97,3 +143,46 @@ metrics:
     description: "Year-to-date running total of new leads."
     measure: lead_count
     window: ytd
+  # Intake funnel — leads reaching each milestone, and the conversion rates.
+  vouchers:
+    label: "Vouchers"
+    description: "Leads reaching the voucher (initial intake) stage."
+    measure: voucher_reached
+    synonyms: ["voucher", "leads reached voucher"]
+  leads_reached_xray:
+    label: "Leads reached X-Ray"
+    description: "Leads reaching the X-Ray Received stage."
+    measure: xray_reached
+    synonyms: ["x-ray received"]
+  leads_reached_bread:
+    label: "Leads reached B-Read"
+    description: "Leads reaching the B-Read Results stage."
+    measure: bread_reached
+    synonyms: ["b-read results"]
+  leads_reached_bank_complete:
+    label: "Leads reached Bank Complete"
+    description: "Leads reaching the Bank Complete stage."
+    measure: bank_complete_reached
+    synonyms: ["bank complete"]
+  voucher_rate:
+    type: ratio
+    label: "Voucher rate %"
+    description: "Share of leads reaching the voucher stage."
+    numerator: voucher_reached
+    denominator: stage_leads
+    format: percent
+    synonyms: ["voucher conversion", "conversion rate"]
+  xray_rate:
+    type: ratio
+    label: "X-Ray rate %"
+    description: "Share of leads reaching the X-Ray stage."
+    numerator: xray_reached
+    denominator: stage_leads
+    format: percent
+  bank_complete_rate:
+    type: ratio
+    label: "Bank Complete rate %"
+    description: "Share of leads reaching the Bank Complete stage."
+    numerator: bank_complete_reached
+    denominator: stage_leads
+    format: percent

@@ -16,7 +16,21 @@ from datetime import date, timedelta
 SCHEMA: dict[str, list[str]] = {
     "cases": ["LeadId", "CreateDate", "source_category", "Status"],
     "geo": ["LeadId", "State"],
+    "stages": ["LeadId", "StageName", "StageOrder", "milestone_complete", "DateCompleted"],
 }
+
+# The intake funnel and each stage's cumulative reach (share of leads getting that far),
+# from the live source. Reach is monotonic, so a lead reaches a prefix of the stages.
+_FUNNEL = [
+    ("Lead", 1.000),
+    ("Voucher (Initial Intake)", 0.242),
+    ("X-Ray Received", 0.184),
+    ("X-Ray to B-Read", 0.171),
+    ("B-Read Results", 0.168),
+    ("Sched. for Clinic", 0.160),
+    ("Bank Incomplete", 0.152),
+    ("Bank Complete", 0.147),
+]
 
 # Channel mix, weighted to the live source_category counts.
 _CHANNELS = [
@@ -55,11 +69,12 @@ _WINDOW_DAYS = 1285
 
 
 def build_rows(leads: int, seed: int) -> dict[str, list[dict[str, object]]]:
-    """Generate the fixture's rows: one case per lead, a geo row for ~62% of them."""
+    """One case per lead, a geo row for ~62% of them, and the stage rows each lead reached."""
 
     rng = random.Random(seed)
     case_rows: list[dict[str, object]] = []
     geo_rows: list[dict[str, object]] = []
+    stage_rows: list[dict[str, object]] = []
     for lead_id in range(leads):
         created = _WINDOW_START + timedelta(days=rng.randint(0, _WINDOW_DAYS))
         case_rows.append(
@@ -73,4 +88,20 @@ def build_rows(leads: int, seed: int) -> dict[str, list[dict[str, object]]]:
         if rng.random() < _GEO_COVERAGE:
             state = rng.choices(_STATES, weights=_STATE_WEIGHTS)[0]
             geo_rows.append({"LeadId": lead_id, "State": state})
-    return {"cases": case_rows, "geo": geo_rows}
+
+        # One draw decides how far the lead got: it reaches every stage whose cumulative
+        # reach still exceeds the draw, which is a prefix since reach only decreases.
+        progress = rng.random()
+        for order, (stage, reach) in enumerate(_FUNNEL):
+            if reach <= progress:
+                break
+            stage_rows.append(
+                {
+                    "LeadId": lead_id,
+                    "StageName": stage,
+                    "StageOrder": order,
+                    "milestone_complete": 1,
+                    "DateCompleted": (created + timedelta(days=order * 7)).isoformat(),
+                }
+            )
+    return {"cases": case_rows, "geo": geo_rows, "stages": stage_rows}
