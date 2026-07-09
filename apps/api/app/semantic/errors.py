@@ -30,6 +30,12 @@ class UnknownMetricError(SemanticError):
         self.name = name
 
 
+class UnknownConstantError(SemanticError):
+    def __init__(self, name: str) -> None:
+        super().__init__(f"Unknown constant: {name!r}.")
+        self.name = name
+
+
 class InvalidFormulaError(SemanticError):
     """A derived metric's formula is not a supported expression.
 

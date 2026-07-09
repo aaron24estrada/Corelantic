@@ -31,8 +31,14 @@ def test_nested_and_unary() -> None:
     assert "-agg_c" in sql
 
 
-def test_numeric_literals_render_inline() -> None:
-    assert _sql("a * 100") == "agg_a * 100"
+def test_numeric_literals_bind_as_parameters() -> None:
+    # One literal path: numbers never reach the SQL text, only the parameter list.
+    assert _sql("a * 100") == "agg_a * :param_1"
+
+
+def test_division_by_a_constant_is_still_null_guarded() -> None:
+    # A zero denominator — literal or named constant — yields NULL, never a runtime error.
+    assert "nullif(:param_1, :nullif_1)" in _sql("a / 0")
 
 
 @pytest.mark.parametrize(

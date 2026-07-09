@@ -109,6 +109,14 @@ def test_funnel_respects_a_date_range(fixture_source: FixtureDataSource, registr
     assert 0 < int(windowed) < int(full)
 
 
+def test_revenue_values_vouchers_at_the_case_fee(
+    fixture_source: FixtureDataSource, registry: Any
+) -> None:
+    vouchers = int(_run(fixture_source, QueryIntent(metric="vouchers"), registry)[0]["vouchers"])
+    revenue = float(_run(fixture_source, QueryIntent(metric="revenue"), registry)[0]["revenue"])
+    assert revenue == vouchers * registry.constant("case_fee").value
+
+
 def test_lead_metric_grouped_by_stage_is_rejected(registry: Any) -> None:
     # cases → stages is one_to_many; joining would inflate the lead count, so refuse it.
     with pytest.raises(JoinFanOutError):

@@ -4,8 +4,10 @@ from pydantic import ValidationError
 from app.semantic.errors import (
     DisallowedSourceError,
     DuplicateJoinError,
+    DuplicateNameError,
     InvalidFormulaError,
     MixedEntityError,
+    UnknownConstantError,
     UnknownDimensionError,
     UnknownEntityError,
     UnknownMeasureError,
@@ -91,6 +93,70 @@ def test_build_registry_injects_names_and_discriminates_types() -> None:
 def test_validate_registry_accepts_resolvable_references() -> None:
     registry = build_registry(_raw())
     assert validate_registry(registry) is registry
+
+
+def test_derived_formula_may_reference_a_registry_constant() -> None:
+    raw = _raw()
+    raw["constants"] = {"case_fee": {"value": 6000, "description": "Fee per signed case."}}
+    raw["metrics"]["revenue"] = {  # type: ignore[index]
+        "type": "derived",
+        "label": "Revenue",
+        "description": "x",
+        "measures": ["lead_count"],
+        "expression": "lead_count * case_fee",
+    }
+    registry = build_registry(raw)
+    assert validate_registry(registry) is registry
+    assert registry.constant("case_fee").value == 6000
+
+
+def test_derived_formula_referencing_an_undefined_constant_raises() -> None:
+    raw = _raw()
+    raw["metrics"]["revenue"] = {  # type: ignore[index]
+        "type": "derived",
+        "label": "Revenue",
+        "description": "x",
+        "measures": ["lead_count"],
+        "expression": "lead_count * case_fee",  # never authored
+    }
+    with pytest.raises(InvalidFormulaError):
+        validate_registry(build_registry(raw))
+
+
+def test_unknown_constant_lookup_raises() -> None:
+    with pytest.raises(UnknownConstantError):
+        build_registry(_raw()).constant("nope")
+
+
+def test_a_constant_may_not_shadow_a_measure() -> None:
+    # Formulas resolve names against both, so a shared name would let the constant win.
+    raw = _raw()
+    raw["constants"] = {"lead_count": {"value": 1, "description": "Shadows a measure."}}
+    with pytest.raises(DuplicateNameError):
+        validate_registry(build_registry(raw))
+
+
+def test_derived_formula_must_reference_every_declared_measure() -> None:
+    # Otherwise the unused measure still drags its entity into the join plan, and a formula
+    # of constants alone would select an unaggregated literal — a row per fact row.
+    raw = _raw()
+    raw["constants"] = {"case_fee": {"value": 6000, "description": "Fee."}}
+    raw["metrics"]["revenue"] = {  # type: ignore[index]
+        "type": "derived",
+        "label": "Revenue",
+        "description": "x",
+        "measures": ["lead_count"],
+        "expression": "case_fee * 2",  # never references lead_count
+    }
+    with pytest.raises(InvalidFormulaError):
+        validate_registry(build_registry(raw))
+
+
+def test_a_constant_must_be_finite() -> None:
+    raw = _raw()
+    raw["constants"] = {"bad": {"value": float("inf"), "description": "x"}}
+    with pytest.raises(ValidationError):
+        build_registry(raw)
 
 
 def test_validate_registry_accepts_allowed_source_schema() -> None:

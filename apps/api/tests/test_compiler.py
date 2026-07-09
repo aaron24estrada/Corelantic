@@ -21,6 +21,7 @@ from app.semantic.models import (
     Cardinality,
     ComparisonMetric,
     ComparisonPeriod,
+    Constant,
     CumulativeMetric,
     CumulativeWindow,
     DerivedMetric,
@@ -134,6 +135,14 @@ def _registry() -> SemanticRegistry:
             "vouchers": SimpleMetric(
                 name="vouchers", label="Vouchers", description="x", measure="voucher_reached"
             ),
+            "revenue": DerivedMetric(
+                name="revenue",
+                label="Revenue",
+                description="x",
+                measures=["voucher_reached"],
+                expression="voucher_reached * case_fee",
+                format=MetricFormat.CURRENCY,
+            ),
             "voucher_rows": SimpleMetric(
                 name="voucher_rows", label="Voucher rows", description="x", measure="stage_rows"
             ),
@@ -144,6 +153,9 @@ def _registry() -> SemanticRegistry:
                 numerator="lead_count",  # on leads
                 denominator="case_count",  # on cases — spans entities
             ),
+        },
+        constants={
+            "case_fee": Constant(name="case_fee", value=6000, description="Fee per case."),
         },
         dimensions={
             "channel": Dimension(name="channel", label="Channel", entity="leads", column="channel"),
@@ -372,8 +384,16 @@ def test_derived_metric_compiles_its_formula() -> None:
     sql, _ = _rendered(compile_query(QueryIntent(metric="margin_pct"), _registry()))
     assert "sum(leads.revenue) - sum(leads.spend)" in sql
     assert "nullif(sum(leads.revenue)" in sql
-    assert "* 100" in sql
+    assert "* :param_1" in sql  # numeric literals bind, never inline
     assert "AS margin_pct" in sql
+
+
+def test_derived_formula_binds_a_registry_constant() -> None:
+    # The case fee reaches SQL as a bound parameter, never interpolated into the text.
+    sql, params = _rendered(compile_query(QueryIntent(metric="revenue"), _registry()))
+    assert "count(DISTINCT CASE WHEN" in sql and "* :param_1" in sql
+    assert params["param_1"] == 6000
+    assert "6000" not in sql
 
 
 def test_derived_formula_referencing_a_measure_not_declared_raises() -> None:
