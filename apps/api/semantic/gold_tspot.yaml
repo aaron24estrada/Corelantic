@@ -10,6 +10,15 @@
 # PII is excluded by construction: no contact name, phone, age, gender, or lat/lon column
 # is named here, so the NL panel cannot surface one whatever it is asked.
 
+constants:
+  case_fee:
+    value: 6000
+    description: >-
+      Average fee per signed case, in USD. Not stored anywhere in the warehouse: the Power BI
+      model computes Revenue (Vouchers) as vouchers x this fee. Confirmed against the live
+      dashboard to the dollar (20,977 vouchers x 6000 = $125,862,000). Pending Imran's
+      confirmation that 6000 is current (#37).
+
 entities:
   cases:
     label: "Leads"
@@ -164,6 +173,14 @@ metrics:
     description: "Leads reaching the Bank Complete stage."
     measure: bank_complete_reached
     synonyms: ["bank complete"]
+  revenue:
+    type: derived
+    label: "Revenue (Vouchers)"
+    description: "Vouchers valued at the average case fee."
+    measures: ["voucher_reached"]
+    expression: "voucher_reached * case_fee"
+    format: currency
+    synonyms: ["revenue vouchers"]
   voucher_rate:
     type: ratio
     label: "Voucher rate %"

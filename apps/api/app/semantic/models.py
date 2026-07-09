@@ -18,12 +18,14 @@ raw SQL inline. Entity ``source`` names and measure/dimension expressions are au
 us; they are the trusted side of the SQL trust boundary (see app/query/compiler.py).
 """
 
+import math
 from enum import StrEnum
 from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, field_validator, model_validator
 
 from app.semantic.errors import (
+    UnknownConstantError,
     UnknownDimensionError,
     UnknownEntityError,
     UnknownMeasureError,
@@ -196,6 +198,26 @@ class Measure(SemanticModel):
         return self
 
 
+class Constant(SemanticModel):
+    """A named business value a derived metric's formula may reference.
+
+    A case fee is a definition, not deployment config: it lives in the versioned registry so
+    changing it is a reviewed diff, never an environment difference producing other numbers.
+    """
+
+    name: str = Field(description="Stable identifier, referenced by derived formulas.")
+    value: float = Field(description="The numeric value.")
+    description: str = Field(description="What it means and where it came from.")
+
+    @field_validator("value")
+    @classmethod
+    def _finite(cls, value: float) -> float:
+        # YAML spells .nan and .inf; either would bind into SQL with driver-defined behaviour.
+        if not math.isfinite(value):
+            raise ValueError("constant value must be finite")
+        return value
+
+
 class MetricBase(SemanticModel):
     """Fields every metric carries, regardless of how its value is composed."""
 
@@ -281,12 +303,19 @@ class SemanticRegistry(SemanticModel):
     dimensions: dict[str, Dimension] = Field(default_factory=dict)
     measures: dict[str, Measure] = Field(default_factory=dict)
     metrics: dict[str, Metric] = Field(default_factory=dict)
+    constants: dict[str, Constant] = Field(default_factory=dict)
 
     def entity(self, name: str) -> Entity:
         try:
             return self.entities[name]
         except KeyError:
             raise UnknownEntityError(name) from None
+
+    def constant(self, name: str) -> Constant:
+        try:
+            return self.constants[name]
+        except KeyError:
+            raise UnknownConstantError(name) from None
 
     def dimension(self, name: str) -> Dimension:
         try:

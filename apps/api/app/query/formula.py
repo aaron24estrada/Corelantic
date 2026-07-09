@@ -3,16 +3,16 @@
 The grammar itself — which names, literals, and operators are legal — is owned by
 ``app/semantic/formula.py``; we call its ``validate_formula`` first, so this module only
 ever walks an expression that has already been approved. There is no ``eval`` and no
-string SQL: names resolve to authored measure expressions, numbers render as literals,
-and ``+ - * /`` become Core operators. Division is guarded with ``nullif(denominator, 0)``
-so a zero denominator yields NULL rather than a runtime error.
+string SQL: names resolve to authored measure expressions or registry constants, numbers
+bind as parameters, and ``+ - * /`` become Core operators. Division is guarded with
+``nullif(denominator, 0)`` so a zero denominator yields NULL rather than a runtime error.
 """
 
 import ast
 from collections.abc import Callable
 from typing import Any
 
-from sqlalchemy import ColumnElement, func, literal_column
+from sqlalchemy import ColumnElement, func, literal
 
 from app.semantic.formula import validate_formula
 
@@ -40,7 +40,7 @@ def _to_core(node: ast.expr, resolve: Resolver) -> ColumnElement[Any]:
     if isinstance(node, ast.Name):
         return resolve(node.id)
     if isinstance(node, ast.Constant):
-        return literal_column(repr(node.value))
+        return literal(node.value)
     if isinstance(node, ast.UnaryOp):
         return -_to_core(node.operand, resolve)
     if isinstance(node, ast.BinOp):

@@ -22,11 +22,13 @@ from app.semantic.errors import (
     DisallowedSourceError,
     DuplicateJoinError,
     DuplicateNameError,
+    InvalidFormulaError,
     MalformedRegistryError,
 )
-from app.semantic.formula import validate_formula
+from app.semantic.formula import formula_names, validate_formula
 from app.semantic.models import (
     METRIC_ADAPTER,
+    Constant,
     DerivedMetric,
     Dimension,
     Entity,
@@ -82,6 +84,7 @@ def build_registry(raw: dict[str, Any]) -> SemanticRegistry:
         dimensions={n: Dimension(name=n, **b) for n, b in _section(raw, "dimensions").items()},
         measures={n: Measure(name=n, **b) for n, b in _section(raw, "measures").items()},
         metrics={n: _build_metric(n, b) for n, b in _section(raw, "metrics").items()},
+        constants={n: Constant(name=n, **b) for n, b in _section(raw, "constants").items()},
     )
 
 
@@ -99,13 +102,19 @@ def merge_registries(registries: list[SemanticRegistry]) -> SemanticRegistry:
     dimensions: dict[str, Dimension] = {}
     measures: dict[str, Measure] = {}
     metrics: dict[str, Metric] = {}
+    constants: dict[str, Constant] = {}
     for registry in registries:
         _merge_collection("entity", entities, registry.entities)
         _merge_collection("dimension", dimensions, registry.dimensions)
         _merge_collection("measure", measures, registry.measures)
         _merge_collection("metric", metrics, registry.metrics)
+        _merge_collection("constant", constants, registry.constants)
     return SemanticRegistry(
-        entities=entities, dimensions=dimensions, measures=measures, metrics=metrics
+        entities=entities,
+        dimensions=dimensions,
+        measures=measures,
+        metrics=metrics,
+        constants=constants,
     )
 
 
@@ -135,6 +144,11 @@ def validate_registry(
     compiler at an un-vetted table).
     """
 
+    # Formulas resolve names against measures and constants alike, so a shared name would let
+    # a constant silently stand in for a measure.
+    for name in sorted(set(registry.constants) & set(registry.measures)):
+        raise DuplicateNameError("constant shadowing a measure,", name)
+
     for entity in registry.entities.values():
         if allowed_schemas is not None:
             schema, sep, table_name = entity.source.rpartition(".")
@@ -154,8 +168,17 @@ def validate_registry(
         # Resolves every component measure and confirms they share one entity.
         resolve_metric_entity(metric, registry)
         if isinstance(metric, DerivedMetric):
-            # Formula must parse and reference only the metric's declared measures.
-            validate_formula(metric.expression, set(metric.measures))
+            # A formula may reference only its declared measures and the registry's constants;
+            # an undefined name (a case fee nobody authored) fails here, not at query time.
+            validate_formula(metric.expression, set(metric.measures) | set(registry.constants))
+            # Every declared measure must appear. Otherwise it still pulls its entity into the
+            # join plan, and a formula of constants alone would select an unaggregated literal
+            # — one row per fact row rather than one value.
+            unused = set(metric.measures) - formula_names(metric.expression)
+            if unused:
+                raise InvalidFormulaError(
+                    metric.expression, f"declares measures it never references: {sorted(unused)}"
+                )
     _check_unique_terms("metric", registry.metrics)
     _check_unique_terms("dimension", registry.dimensions)
     return registry

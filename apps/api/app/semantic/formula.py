@@ -23,7 +23,8 @@ ALLOWED_BINOPS = (ast.Add, ast.Sub, ast.Mult, ast.Div)
 def validate_formula(expression: str, allowed: set[str]) -> None:
     """Raise ``InvalidFormulaError`` unless the formula is on the allowlist.
 
-    ``allowed`` is the set of measure names the formula may reference.
+    ``allowed`` is the set of names the formula may reference — the metric's declared
+    measures plus the registry's constants.
     """
 
     try:
@@ -33,11 +34,18 @@ def validate_formula(expression: str, allowed: set[str]) -> None:
     _check(tree.body, expression, allowed)
 
 
+def formula_names(expression: str) -> set[str]:
+    """The names a formula references. Call only on an expression ``validate_formula`` passed."""
+
+    tree = ast.parse(expression, mode="eval")
+    return {node.id for node in ast.walk(tree) if isinstance(node, ast.Name)}
+
+
 def _check(node: ast.expr, expression: str, allowed: set[str]) -> None:
     if isinstance(node, ast.Name):
         if node.id not in allowed:
             raise InvalidFormulaError(
-                expression, f"{node.id!r} is not one of the metric's measures {sorted(allowed)}"
+                expression, f"{node.id!r} is not a declared measure or constant {sorted(allowed)}"
             )
         return
     if isinstance(node, ast.Constant):

@@ -245,12 +245,15 @@ def _value_expression(
         denominator = _measure_expression(registry.measure(metric.denominator), plan)
         return safe_divide(numerator, denominator)
     if isinstance(metric, DerivedMetric):
-        # build_formula validates the expression (names must be in `measures`) before
-        # translating it; resolve maps an approved name to its measure expression.
+        # build_formula validates the expression before translating it; resolve maps an
+        # approved name to its measure expression, or to a registry constant's bound value.
         def resolve(name: str) -> ColumnElement[Any]:
+            if name in registry.constants:
+                return literal(registry.constant(name).value)
             return _measure_expression(registry.measure(name), plan)
 
-        return build_formula(metric.expression, set(metric.measures), resolve)
+        allowed = set(metric.measures) | set(registry.constants)
+        return build_formula(metric.expression, allowed, resolve)
     # Temporal metrics are compiled by _compile_temporal, never here.
     raise AssertionError(f"non-aggregate metric reached _value_expression: {metric!r}")
 

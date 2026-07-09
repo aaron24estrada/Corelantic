@@ -26,7 +26,8 @@ def validate(directory: Path, allowed_schemas: set[str] | None = None) -> tuple[
         return False, f"✗ {directory}: {error}"
     summary = (
         f"✓ {directory}: {len(registry.entities)} entities, {len(registry.measures)} measures, "
-        f"{len(registry.dimensions)} dimensions, {len(registry.metrics)} metrics"
+        f"{len(registry.dimensions)} dimensions, {len(registry.metrics)} metrics, "
+        f"{len(registry.constants)} constants"
     )
     return True, summary
 
