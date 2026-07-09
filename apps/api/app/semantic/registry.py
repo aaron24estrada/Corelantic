@@ -19,6 +19,7 @@ import yaml
 
 from app.semantic.errors import (
     AmbiguousTermError,
+    DisallowedSourceError,
     DuplicateJoinError,
     DuplicateNameError,
     MalformedRegistryError,
@@ -119,16 +120,26 @@ def _check_unique_terms(kind: str, items: dict[str, Any]) -> None:
             owner[term] = item.name
 
 
-def validate_registry(registry: SemanticRegistry) -> SemanticRegistry:
+def validate_registry(
+    registry: SemanticRegistry, allowed_schemas: set[str] | None = None
+) -> SemanticRegistry:
     """Raise if any reference dangles or a synonym is ambiguous; return the registry.
 
     Fail loud at load: a dimension/measure pointing at a missing entity, a metric at a
     missing (or cross-entity) measure, or a synonym that matches two definitions is an
     authoring bug we surface now rather than at query time. This is the schema-bounded
     guarantee from docs/concepts.md §3.
+
+    ``allowed_schemas``, when given, bounds every entity source to a known schema — a
+    trust check now that sources name live database objects (a bad edit must not point the
+    compiler at an un-vetted table).
     """
 
     for entity in registry.entities.values():
+        if allowed_schemas is not None:
+            schema, sep, table_name = entity.source.rpartition(".")
+            if not (sep and schema and table_name) or schema not in allowed_schemas:
+                raise DisallowedSourceError(entity.name, entity.source, sorted(allowed_schemas))
         targets: set[str] = set()
         for edge in entity.joins:
             registry.entity(edge.to)  # a join edge must point at a real entity
@@ -150,9 +161,9 @@ def validate_registry(registry: SemanticRegistry) -> SemanticRegistry:
     return registry
 
 
-def load_registry(directory: Path) -> SemanticRegistry:
+def load_registry(directory: Path, allowed_schemas: set[str] | None = None) -> SemanticRegistry:
     registries = [
         build_registry(yaml.load(path.read_text(), Loader=_UniqueKeyLoader) or {})
         for path in sorted(directory.glob("*.yaml"))
     ]
-    return validate_registry(merge_registries(registries))
+    return validate_registry(merge_registries(registries), allowed_schemas)

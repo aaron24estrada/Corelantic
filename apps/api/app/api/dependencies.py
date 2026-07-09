@@ -21,7 +21,8 @@ SettingsDep = Annotated[Settings, Depends(get_settings)]
 
 @lru_cache
 def get_registry() -> SemanticRegistry:
-    return load_registry(get_settings().semantic_dir)
+    settings = get_settings()
+    return load_registry(settings.semantic_dir, settings.allowed_schemas)
 
 
 RegistryDep = Annotated[SemanticRegistry, Depends(get_registry)]

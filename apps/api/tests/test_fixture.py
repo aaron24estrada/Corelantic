@@ -11,6 +11,18 @@ from app.query.intent import QueryIntent
 from app.query.time import DateRange, Grain
 from app.semantic.registry import load_registry
 
+_CHANNELS = {
+    "CTV",
+    "Linear TV",
+    "Phone/SMS",
+    "Facebook",
+    "Referral",
+    "Unknown",
+    "Other Social Media",
+    "Website/Email",
+    "Other",
+}
+
 
 @pytest.fixture(scope="module")
 def fixture_source() -> FixtureDataSource:
@@ -34,25 +46,28 @@ def test_simple_metric_returns_the_seeded_count(
     assert rows == [{"new_leads": 500}]
 
 
-def test_ratio_metric_is_in_the_krw_ballpark(
-    fixture_source: FixtureDataSource, registry: Any
-) -> None:
-    [row] = _run(fixture_source, QueryIntent(metric="roas"), registry)
-    assert 2.0 < float(row["roas"]) < 5.0  # ROAS ~3.4x by construction
+def test_channel_breakdown_sums_to_total(fixture_source: FixtureDataSource, registry: Any) -> None:
+    rows = _run(fixture_source, QueryIntent(metric="new_leads", group_by=["channel"]), registry)
+    assert {row["channel"] for row in rows} <= _CHANNELS
+    assert sum(int(row["new_leads"]) for row in rows) == 500
 
 
-def test_join_across_entities_returns_rows_per_state(
+def test_group_by_state_keeps_leads_without_geo(
     fixture_source: FixtureDataSource, registry: Any
 ) -> None:
+    # ~38% of leads have no geo row; the outer join must keep them as a NULL group, so the
+    # per-state counts still sum to every lead (the dashboard's "(Blank)" bucket).
     rows = _run(fixture_source, QueryIntent(metric="new_leads", group_by=["state"]), registry)
-    assert {row["state"] for row in rows} <= {"TX", "CA", "AZ"}
-    assert sum(int(row["new_leads"]) for row in rows) == 500  # every lead has a geo row
+    states = {row["state"] for row in rows}
+    assert "TX" in states
+    assert None in states  # leads with no geo survive as a NULL group
+    assert sum(int(row["new_leads"]) for row in rows) == 500
 
 
 def test_grain_buckets_by_month(fixture_source: FixtureDataSource, registry: Any) -> None:
-    rows = _run(fixture_source, QueryIntent(metric="marketing_spend", grain=Grain.MONTH), registry)
+    rows = _run(fixture_source, QueryIntent(metric="new_leads", grain=Grain.MONTH), registry)
     assert len(rows) > 1  # data spans several months
-    assert all("period" in row and "marketing_spend" in row for row in rows)
+    assert all("period" in row and "new_leads" in row for row in rows)
 
 
 def test_concurrent_reads_are_safe(fixture_source: FixtureDataSource, registry: Any) -> None:

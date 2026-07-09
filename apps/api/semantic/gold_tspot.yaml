@@ -1,0 +1,99 @@
+# Semantic registry over KRW's gold_tspot schema (the lead slice).
+#
+# Derived from the live database and reconciled to the Executive Summary dashboard. The
+# fixture DataSource seeds these same tables, so one registry serves both dev and prod.
+#
+# Scope: leads by channel / geography / time. The intake funnel (Leads Reached Voucher…),
+# vouchers, and revenue need a filtered-measure capability the engine does not have yet
+# (tracked separately); marketing spend and referrals await cross-schema access (#37).
+#
+# PII is excluded by construction: no contact name, phone, age, gender, or lat/lon column
+# is named here, so the NL panel cannot surface one whatever it is asked.
+
+entities:
+  cases:
+    label: "Leads"
+    source: gold_tspot.cases
+    joins:
+      # Each case has at most one geo row (geo is 1:1 on LeadId, but ~38% of leads have
+      # none) — many_to_one, so the compiler joins it fan-out-free and keeps unmatched
+      # leads via the outer join.
+      - to: geo
+        left: LeadId
+        right: LeadId
+        cardinality: many_to_one
+  geo:
+    label: "Geography"
+    source: gold_tspot.geo
+
+dimensions:
+  channel:
+    label: "Channel"
+    entity: cases
+    column: source_category
+    members:
+      ["CTV", "Linear TV", "Phone/SMS", "Facebook", "Referral", "Unknown",
+       "Other Social Media", "Website/Email", "Other"]
+    synonyms: ["source", "source category", "acquisition channel"]
+  status:
+    label: "Status"
+    entity: cases
+    column: Status
+    synonyms: ["case status"]
+  lead_date:
+    label: "Lead date"
+    entity: cases
+    column: CreateDate
+    date_role: lead
+    synonyms: ["date", "created", "intake date"]
+  state:
+    label: "State"
+    entity: geo
+    column: State
+    synonyms: ["province"]
+
+measures:
+  lead_count:
+    entity: cases
+    agg: count
+  distinct_leads:
+    entity: cases
+    agg: count
+    column: LeadId
+    distinct: true
+
+metrics:
+  new_leads:
+    label: "New leads"
+    description: "Count of intake leads in the period."
+    measure: lead_count
+    synonyms: ["leads", "total leads", "new intakes"]
+  unique_leads:
+    label: "Unique leads"
+    description: "Count of distinct leads."
+    measure: distinct_leads
+    synonyms: ["distinct leads"]
+  leads_wow_pct:
+    type: comparison
+    label: "Leads WoW %"
+    description: "Week-over-week percent change in new leads."
+    measure: lead_count
+    period: wow
+    kind: pct
+    format: percent
+    synonyms: ["leads week over week"]
+  leads_mom_pct:
+    type: comparison
+    label: "Leads MoM %"
+    description: "Month-over-month percent change in new leads."
+    measure: lead_count
+    period: mom
+    kind: pct
+    format: percent
+    synonyms: ["leads month over month"]
+  leads_ytd:
+    type: cumulative
+    label: "Leads YTD"
+    description: "Year-to-date running total of new leads."
+    measure: lead_count
+    window: ytd

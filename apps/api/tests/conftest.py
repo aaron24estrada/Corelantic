@@ -19,9 +19,9 @@ INTERNAL_KEY = "test-internal-key"
 @pytest.fixture
 def registry() -> SemanticRegistry:
     return SemanticRegistry(
-        entities={"leads": Entity(name="leads", label="Leads", source="analytics.v_leads")},
+        entities={"cases": Entity(name="cases", label="Leads", source="gold_tspot.cases")},
         measures={
-            "lead_count": Measure(name="lead_count", entity="leads", agg=Aggregation.COUNT),
+            "lead_count": Measure(name="lead_count", entity="cases", agg=Aggregation.COUNT),
         },
         metrics={
             "new_leads": SimpleMetric(
@@ -32,8 +32,9 @@ def registry() -> SemanticRegistry:
             ),
         },
         dimensions={
-            "channel": Dimension(name="channel", label="Channel", entity="leads", column="channel"),
-            "region": Dimension(name="region", label="Region", entity="leads", column="metro"),
+            "channel": Dimension(
+                name="channel", label="Channel", entity="cases", column="source_category"
+            ),
         },
     )
 
