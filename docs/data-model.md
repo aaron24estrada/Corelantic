@@ -38,14 +38,40 @@ Full measure set (`_Measures`), grouped:
 - **Trends (period-over-period):** MTD/YTD/Prior-Week/Prior-Month variants and WoW/MoM % + change for Leads, Calls, Vouchers, Marketing Spend, Revenue KPI, ROAS.
 - **Call center:** Calls Answered, Calls Linked to Lead, Queue Routed Calls, Spam Calls, Avg Wait Time, Avg Call Duration.
 
-## What this answers, and the remaining gap
+## Verified against the live database (2026-07-10)
 
-**Answers (O-2, structurally):** the physical tables and columns, the metric vocabulary, the date dimensions, the funnel stages, and the grains. This is enough to draft the semantic registry's tables/dimensions and the *list* of metrics.
+We now read `gold_tspot` directly. What follows was measured, not inferred — and several readings that look obvious from the column names are wrong.
 
-**Still needed before the semantic layer is real:**
-1. **Measure definitions** — the DAX/SQL formulas behind the `_Measures` (e.g. exactly how `Cost per Lead`, `ROAS`, `Vouchers WoW %`, `Bank Complete Rate %` are computed), so ours match KRW's numbers. Names alone risk subtly wrong metrics.
-2. **Which of these are queryable SQL objects** (tables vs views vs Power-BI-only computed tables) and their real schema/object names — plus the **read-only credential** and edition (still **O-1**).
-3. Confirmation of the two date roles (lead vs referral) and which drives the MVP visuals.
+**Readable tables** (`gold_tspot`, 9): `cases` (86,973), `geo` (98,005), `stages` (193,432), `stage_durations` (193,432), `zoom_calls` (92,741), `call_leads` (54,090), `phone_bridge` (91,455), `agents` (262), `agent_stats` (391).
+
+**Not readable** (other schemas exist but this login cannot see them): `marketing_budget` (spend → ROAS, Cost per Lead) and `referral_leads` (cancer type, referral firm, fees). Tracked as **#37**.
+
+### Definitions that are counter-intuitive
+
+- **`cases.Milestone` is current state, not the funnel.** It has a `VOUCHER` value with only 90 rows. The funnel is `stages` (`StageName`, `StageOrder`, `milestone_complete`), one row per milestone a lead reached.
+- **A call was answered iff it has an `answer_time`**, and `COUNT` skips NULLs. `call_result = 'answered'` is only 28,972 while `connected` is 42,161, and 3,541 `hang_up` calls were answered before being dropped. Filtering the disposition understates the answer rate ~4× (31% vs the true 80.9%).
+- **`zoom_calls.duration` is seconds** (avg 113.7, max 11,910), not milliseconds.
+- **A `zoom_calls` row is a call leg**, not a call: 92,741 rows, 82,868 distinct `call_id`.
+- **Agent conversion must be pooled**: `SUM(leads_converted)/SUM(leads_contacted)` = 4.44%. `agent_stats` is a per-agent-per-week rollup, so averaging its stored `conversion_rate_pct` yields 2.65% — a mean-of-ratios error.
+- **~38% of leads have no `geo` row.** An inner join silently drops them; the dashboard shows them as its "(Blank)" bucket.
+- **`cases.CaseType` is only ever `Asbestos`** here. Cancer type and referral firm live in the unreadable `referral_leads`.
+- **Revenue is not stored.** Power BI computes `Revenue (Vouchers)` as `vouchers × $6,000` (20,977 × 6000 = $125,862,000, to the dollar). Modelled as the registry constant `case_fee`; **pending Imran's confirmation the fee is current**.
+
+### Coverage windows
+
+`cases.CreateDate` spans 2023-01-02 → 2026-07-08. But `zoom_calls.call_date` covers only **2026-01-01 → 2026-07-09**, and `agent_stats.week_start` **2025-12-29 → 2026-07-06**. Telephony is a recent window, not the leads' three years.
+
+### PII
+
+`cases` and `zoom_calls` carry claimant PII (names, phones, age, gender, diagnosis, lat/lon). The registry **never names** those columns, so the NL panel cannot surface one whatever it is asked. `agent_name` *is* exposed deliberately — workforce performance data, which KRW's own model surfaces — while `agents.email` is not.
+
+## The remaining gap
+
+1. **Spend and referrals** — read access to whichever schema holds `marketing_budget` and `referral_leads` (**#37**). Blocks ROAS, Cost per Lead, and the whole Referrals page.
+2. **Confirm the $6,000 case fee**, and whether it should be configurable.
+3. **A service principal** for headless (deployed) Azure SQL access; the dev path uses a personal MFA account.
+
+The measure *formulas* are no longer a blocker: everything readable has been re-derived from the source and reconciled against the dashboard.
 
 ## Mapping to the MVP's nine visuals (proposed, to confirm)
 
