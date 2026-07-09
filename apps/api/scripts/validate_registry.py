@@ -19,9 +19,9 @@ from app.semantic.errors import SemanticError
 from app.semantic.registry import load_registry
 
 
-def validate(directory: Path) -> tuple[bool, str]:
+def validate(directory: Path, allowed_schemas: set[str] | None = None) -> tuple[bool, str]:
     try:
-        registry = load_registry(directory)
+        registry = load_registry(directory, allowed_schemas)
     except (SemanticError, ValidationError, yaml.YAMLError, OSError) as error:
         return False, f"✗ {directory}: {error}"
     summary = (
@@ -32,7 +32,9 @@ def validate(directory: Path) -> tuple[bool, str]:
 
 
 def main() -> int:
-    ok, message = validate(get_settings().semantic_dir)
+    settings = get_settings()
+    # Same allow-list the app enforces, so `make validate` can't pass what the app rejects.
+    ok, message = validate(settings.semantic_dir, settings.allowed_schemas)
     print(message)
     return 0 if ok else 1
 

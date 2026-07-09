@@ -2,6 +2,7 @@ import pytest
 from pydantic import ValidationError
 
 from app.semantic.errors import (
+    DisallowedSourceError,
     DuplicateJoinError,
     InvalidFormulaError,
     MixedEntityError,
@@ -90,6 +91,24 @@ def test_build_registry_injects_names_and_discriminates_types() -> None:
 def test_validate_registry_accepts_resolvable_references() -> None:
     registry = build_registry(_raw())
     assert validate_registry(registry) is registry
+
+
+def test_validate_registry_accepts_allowed_source_schema() -> None:
+    registry = build_registry(_raw())
+    assert validate_registry(registry, allowed_schemas={"analytics"}) is registry
+
+
+def test_validate_registry_rejects_source_outside_allow_list() -> None:
+    registry = build_registry(_raw())  # sources live in analytics
+    with pytest.raises(DisallowedSourceError):
+        validate_registry(registry, allowed_schemas={"gold_tspot"})
+
+
+def test_validate_registry_rejects_malformed_source_shape() -> None:
+    raw = _raw()
+    raw["entities"] = {"leads": {"label": "Leads", "source": "gold_tspot."}}  # empty table
+    with pytest.raises(DisallowedSourceError):
+        validate_registry(build_registry(raw), allowed_schemas={"gold_tspot"})
 
 
 def test_validate_registry_rejects_ratio_with_missing_measure() -> None:

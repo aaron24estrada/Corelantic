@@ -48,6 +48,13 @@ class Settings(BaseSettings):
 
     # Directory holding the semantic registry (metric and dimension definitions).
     semantic_dir: Path = PACKAGE_ROOT / "semantic"
+    # Schemas an entity source may name (comma-separated). Bounds the registry to vetted
+    # database objects — the fixture and the real warehouse both live in gold_tspot.
+    allowed_source_schemas: str = "gold_tspot"
+
+    @property
+    def allowed_schemas(self) -> set[str]:
+        return {s.strip() for s in self.allowed_source_schemas.split(",") if s.strip()}
 
 
 @lru_cache

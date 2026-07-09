@@ -7,7 +7,7 @@ replica is a config choice — the compiled statement is dialect-neutral and run
 
 The engine is an in-memory SQLite kept alive by a single pooled connection (StaticPool), so
 the seed persists for the process. The registry's sources are schema-qualified
-(``analytics.v_leads``), so we ATTACH an ``analytics`` database to resolve them. Reads run
+(``gold_tspot.cases``), so we ATTACH a ``gold_tspot`` database to resolve them. Reads run
 on a worker thread to honour the async contract without blocking the event loop.
 """
 
@@ -22,7 +22,7 @@ from sqlalchemy.pool import StaticPool
 import app.adapters.data.sqlite  # noqa: F401 — registers the DateBucket SQLite rendering
 from app.adapters.data.seed import SCHEMA, build_rows
 
-_SCHEMA_NAME = "analytics"
+_SCHEMA_NAME = "gold_tspot"
 
 
 class FixtureDataSource:

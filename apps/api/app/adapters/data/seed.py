@@ -1,11 +1,12 @@
 """Deterministic synthetic seed for the fixture DataSource — KRW-ballpark data.
 
-Rows are generated (seeded RNG, no clock) to match the placeholder registry's schema and
-roll up to the demo numbers: ~86k leads, ~$37M spend, ROAS ~3.4x, spread across channels,
-Texas-heavy metros, and a rolling ~year so grain/range/period-over-period all have shape.
+Rows are generated (seeded RNG, no clock) to mirror gold_tspot's shape and the Executive
+Summary numbers: ~86k leads over 2023-2026, channel mix and Texas-heavy geography matching
+the real distribution, and ~38% of leads with no geo row (as in the source, so grouping by
+state reproduces the dashboard's "(Blank)" bucket and exercises the outer join).
 
-This is coupled to the *placeholder* registry (analytics.v_leads + analytics.v_geo). When
-the real KRW schema lands (C3), the registry and this seed move together.
+The fixture and the real warehouse share one registry, so this seeds the same tables the
+Azure adapter reads (gold_tspot.cases, gold_tspot.geo).
 """
 
 import random
@@ -13,46 +14,63 @@ from datetime import date, timedelta
 
 # Column layout per table (typeless — SQLite stores what we insert), matching the registry.
 SCHEMA: dict[str, list[str]] = {
-    "v_leads": ["lead_id", "channel", "metro", "created_at", "spend", "revenue"],
-    "v_geo": ["lead_id", "state"],
+    "cases": ["LeadId", "CreateDate", "source_category", "Status"],
+    "geo": ["LeadId", "State"],
 }
 
-_CHANNELS = ["Facebook", "Google", "Referral", "Linear TV", "Website"]
-_CHANNEL_WEIGHTS = [34, 28, 14, 9, 15]
-_METROS = [
-    ("Houston", "TX"),
-    ("Dallas", "TX"),
-    ("Austin", "TX"),
-    ("San Antonio", "TX"),
-    ("El Paso", "TX"),
-    ("Phoenix", "AZ"),
-    ("Los Angeles", "CA"),
+# Channel mix, weighted to the live source_category counts.
+_CHANNELS = [
+    "CTV",
+    "Linear TV",
+    "Phone/SMS",
+    "Facebook",
+    "Referral",
+    "Unknown",
+    "Other Social Media",
+    "Website/Email",
+    "Other",
 ]
-# ~1-year window ending recently, fixed so the seed stays deterministic (no clock read).
-_WINDOW_START = date(2025, 7, 1)
-_WINDOW_DAYS = 365
+_CHANNEL_WEIGHTS = [20411, 18378, 16239, 15391, 11191, 2631, 1180, 1079, 473]
+
+# A representative slice of the 87 real statuses, weighted roughly to the source.
+_STATUSES = [
+    "Asbestos - DNQ",
+    "Close File",
+    "Asbestos - Bank Complete",
+    "Closed",
+    "NEW INQUIRY",
+    "Asbestos - M4",
+]
+_STATUS_WEIGHTS = [24074, 15806, 11778, 10259, 6262, 4369]
+
+# Geography, weighted to the live State counts (among leads that have geo).
+_STATES = ["TX", "LA", "AL", "MS", "MI", "FL", "CA", "GA", "OH", "TN"]
+_STATE_WEIGHTS = [41943, 24459, 8561, 8165, 3190, 1498, 892, 784, 618, 536]
+# Share of leads that carry a geo row (the rest are the dashboard's "(Blank)" 38%).
+_GEO_COVERAGE = 0.616
+
+# Fixed 2023-2026 window (matches the real CreateDate span), so the seed stays clockless.
+_WINDOW_START = date(2023, 1, 1)
+_WINDOW_DAYS = 1285
 
 
 def build_rows(leads: int, seed: int) -> dict[str, list[dict[str, object]]]:
-    """Generate the fixture's rows: one lead per id, one geo row per lead (1:1)."""
+    """Generate the fixture's rows: one case per lead, a geo row for ~62% of them."""
 
     rng = random.Random(seed)
-    lead_rows: list[dict[str, object]] = []
+    case_rows: list[dict[str, object]] = []
     geo_rows: list[dict[str, object]] = []
     for lead_id in range(leads):
-        metro, state = rng.choice(_METROS)
         created = _WINDOW_START + timedelta(days=rng.randint(0, _WINDOW_DAYS))
-        spend = round(rng.uniform(50.0, 810.0), 2)  # avg ~$430 → ~$37M over ~86k
-        revenue = round(spend * rng.uniform(1.4, 5.4), 2)  # ROAS ~3.4x on average
-        lead_rows.append(
+        case_rows.append(
             {
-                "lead_id": lead_id,
-                "channel": rng.choices(_CHANNELS, weights=_CHANNEL_WEIGHTS)[0],
-                "metro": metro,
-                "created_at": created.isoformat(),
-                "spend": spend,
-                "revenue": revenue,
+                "LeadId": lead_id,
+                "CreateDate": created.isoformat(),
+                "source_category": rng.choices(_CHANNELS, weights=_CHANNEL_WEIGHTS)[0],
+                "Status": rng.choices(_STATUSES, weights=_STATUS_WEIGHTS)[0],
             }
         )
-        geo_rows.append({"lead_id": lead_id, "state": state})
-    return {"v_leads": lead_rows, "v_geo": geo_rows}
+        if rng.random() < _GEO_COVERAGE:
+            state = rng.choices(_STATES, weights=_STATE_WEIGHTS)[0]
+            geo_rows.append({"LeadId": lead_id, "State": state})
+    return {"cases": case_rows, "geo": geo_rows}

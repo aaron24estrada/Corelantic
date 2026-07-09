@@ -83,6 +83,15 @@ class MalformedRegistryError(SemanticError):
         self.reason = reason
 
 
+class DisallowedSourceError(SemanticError):
+    """An entity's source names a schema outside the configured allow-list."""
+
+    def __init__(self, entity: str, source: str, allowed: list[str]) -> None:
+        super().__init__(f"Entity {entity!r} source {source!r} not in allowed schemas {allowed}.")
+        self.entity = entity
+        self.source = source
+
+
 class AmbiguousTermError(SemanticError):
     """A name or synonym would match more than one metric (or dimension).
 
