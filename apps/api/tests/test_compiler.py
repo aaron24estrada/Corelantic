@@ -186,7 +186,7 @@ def test_group_by_dimension_on_another_entity_joins() -> None:
     )
     assert sql == (
         "SELECT geo.state AS state, count(*) AS new_leads "
-        "FROM analytics.v_leads AS leads JOIN analytics.v_geo AS geo "
+        "FROM analytics.v_leads AS leads LEFT OUTER JOIN analytics.v_geo AS geo "
         "ON leads.lead_id = geo.lead_id GROUP BY geo.state"
     )
 
@@ -217,6 +217,26 @@ def test_one_to_many_join_is_rejected_to_avoid_fan_out() -> None:
     # leads → stages is one-to-many; joining it would inflate count(*), so reject it.
     with pytest.raises(JoinFanOutError):
         compile_query(QueryIntent(metric="new_leads", group_by=["stage_name"]), _registry())
+
+
+def test_fact_to_dimension_join_is_left_outer() -> None:
+    # Regression (#36): inner join drops facts with no dimension row, understating counts.
+    sql, _ = _rendered(
+        compile_query(QueryIntent(metric="new_leads", group_by=["state"]), _registry())
+    )
+    assert "LEFT OUTER JOIN analytics.v_geo AS geo" in sql
+    assert "JOIN analytics.v_geo" in sql and " INNER JOIN " not in sql
+
+
+def test_filter_on_a_joined_dimension_still_constrains() -> None:
+    # A filter on a joined dimension is a real predicate: it excludes NULLs. Correct, not
+    # a regression of the outer join — "(Blank)" only appears when grouping.
+    sql, params = _rendered(
+        compile_query(QueryIntent(metric="new_leads", filters={"state": "TX"}), _registry())
+    )
+    assert "LEFT OUTER JOIN analytics.v_geo AS geo" in sql
+    assert "WHERE geo.state = :state_1" in sql
+    assert params == {"state_1": "TX"}
 
 
 # --- ratio / derived ------------------------------------------------------------------
