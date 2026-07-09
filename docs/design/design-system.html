@@ -1,0 +1,1495 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Corelantic Design System</title>
+
+    <style>
+      @font-face {
+        font-family: "Open Sans";
+        src: url("./opensans-latin.woff2") format("woff2");
+        font-weight: 300 800;
+        font-style: normal;
+        font-display: swap;
+      }
+
+      *,
+      *::before,
+      *::after {
+        box-sizing: border-box;
+        margin: 0;
+        padding: 0;
+      }
+
+      :root {
+        /* Corner curvature. K in x^2K + y^2K = 1: K=1 is a circle, K=2 is the
+           `squircle` keyword, Apple's own corner sits near 2.5. Settled on 2,
+           so the app writes `corner-shape: squircle` rather than a magic
+           number. The slider in the Corners section writes this live. */
+        --k: 2;
+
+        --r-sm: 10px;
+        --r-md: 14px;
+        --r-lg: 20px;
+        --r-xl: 28px;
+
+        --page: #f5f5f7;
+        --card: #ffffff;
+        --sunken: #ededef;
+        --sunken-hover: #e3e3e6;
+        --fg: #1d1d1f;
+        --fg-muted: #6e6e73;
+        --divider: #d8d8dc;
+        --control-border: #86868b;
+
+        --primary: #0071e3;
+        --primary-hover: #006bda;
+        --primary-active: #0064c8;
+        --primary-fg: #ffffff;
+        --accent-text: #0066cc;
+        --ring: #0066cc;
+
+        --positive: #087443;
+        --negative: #d70015;
+        --negative-hover: #c30013;
+        --negative-active: #b00010;
+
+        /* iOS-style elevation: a tight contact shadow, a wider ambient one, and
+           a 1px inset highlight along the top edge. No gradient on the fill —
+           any stop lighter than --primary drops white text below 4.5:1. */
+        --elev-card: 0 1px 2px rgb(0 0 0 / 0.05), 0 1px 1px rgb(0 0 0 / 0.03);
+        --elev-btn: 0 1px 1px rgb(0 0 0 / 0.05), 0 2px 6px rgb(0 0 0 / 0.06);
+        --elev-btn-primary: 0 1px 1px rgb(0 0 0 / 0.08),
+          0 4px 10px color-mix(in srgb, var(--primary) 32%, transparent);
+        --elev-btn-pressed: 0 1px 1px rgb(0 0 0 / 0.06);
+        --inset-hi: inset 0 1px 0 rgb(255 255 255 / 0.18);
+
+        --ease-ios: cubic-bezier(0.32, 0.72, 0, 1);
+        --mono: ui-monospace, "SF Mono", "Cascadia Mono", Menlo, monospace;
+      }
+
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --page: #0b0b0c;
+          --card: #161618;
+          --sunken: #1f1f22;
+          --sunken-hover: #26262a;
+          --fg: #f5f5f7;
+          --fg-muted: #98989d;
+          --divider: #2a2a2d;
+          --control-border: #6e6e73;
+          --accent-text: #0a84ff;
+          --ring: #0a84ff;
+          --positive: #30d158;
+          --negative: #ff453a;
+
+          --elev-card: none;
+          --elev-btn: 0 1px 2px rgb(0 0 0 / 0.4);
+          --elev-btn-primary: 0 2px 8px
+            color-mix(in srgb, var(--primary) 40%, transparent);
+          --elev-btn-pressed: none;
+          --inset-hi: inset 0 1px 0 rgb(255 255 255 / 0.12);
+        }
+      }
+
+      :root[data-theme="dark"] {
+        --page: #0b0b0c;
+        --card: #161618;
+        --sunken: #1f1f22;
+        --sunken-hover: #26262a;
+        --fg: #f5f5f7;
+        --fg-muted: #98989d;
+        --divider: #2a2a2d;
+        --control-border: #6e6e73;
+        --accent-text: #0a84ff;
+        --ring: #0a84ff;
+        --positive: #30d158;
+        --negative: #ff453a;
+
+        --elev-card: none;
+        --elev-btn: 0 1px 2px rgb(0 0 0 / 0.4);
+        --elev-btn-primary: 0 2px 8px
+          color-mix(in srgb, var(--primary) 40%, transparent);
+        --elev-btn-pressed: none;
+        --inset-hi: inset 0 1px 0 rgb(255 255 255 / 0.12);
+      }
+
+      :root[data-theme="light"] {
+        --page: #f5f5f7;
+        --card: #ffffff;
+        --sunken: #ededef;
+        --sunken-hover: #e3e3e6;
+        --fg: #1d1d1f;
+        --fg-muted: #6e6e73;
+        --divider: #d8d8dc;
+        --control-border: #86868b;
+        --accent-text: #0066cc;
+        --ring: #0066cc;
+        --positive: #087443;
+        --negative: #d70015;
+
+        --elev-card: 0 1px 2px rgb(0 0 0 / 0.05), 0 1px 1px rgb(0 0 0 / 0.03);
+        --elev-btn: 0 1px 1px rgb(0 0 0 / 0.05), 0 2px 6px rgb(0 0 0 / 0.06);
+        --elev-btn-primary: 0 1px 1px rgb(0 0 0 / 0.08),
+          0 4px 10px color-mix(in srgb, var(--primary) 32%, transparent);
+        --elev-btn-pressed: 0 1px 1px rgb(0 0 0 / 0.06);
+        --inset-hi: inset 0 1px 0 rgb(255 255 255 / 0.18);
+      }
+
+      /* One rule, every corner. corner-shape is inert without a border-radius,
+         so the universal selector is safe — and it is the only way to avoid the
+         hand-maintained selector list that silently missed half the page. */
+      @supports (corner-shape: squircle) {
+        * {
+          corner-shape: superellipse(var(--k, 1));
+        }
+        /* Anything meant to be a capsule or a circle opts back out. */
+        .chip,
+        .dot,
+        .capsule {
+          --k: 1;
+        }
+      }
+
+      body {
+        background: var(--page);
+        color: var(--fg);
+        font-family: "Open Sans", system-ui, sans-serif;
+        font-size: 15px;
+        line-height: 1.6;
+        -webkit-font-smoothing: antialiased;
+      }
+
+      .page {
+        max-width: 1120px;
+        margin: 0 auto;
+        padding: 48px 24px 96px;
+        display: flex;
+        flex-direction: column;
+        gap: 64px;
+      }
+
+      .masthead {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: 24px;
+      }
+      .masthead h1 {
+        font-size: 40px;
+        font-weight: 600;
+        letter-spacing: -0.025em;
+        line-height: 1.1;
+        text-wrap: balance;
+      }
+      .masthead p {
+        color: var(--fg-muted);
+        max-width: 60ch;
+        margin-top: 8px;
+      }
+      .chips {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        margin-top: 16px;
+      }
+      .chip {
+        font-family: var(--mono);
+        font-size: 12px;
+        padding: 4px 10px;
+        border-radius: 999px;
+        background: var(--sunken);
+        color: var(--fg-muted);
+        border: 1px solid var(--divider);
+      }
+
+      section {
+        display: flex;
+        flex-direction: column;
+        gap: 24px;
+      }
+      .sec-head {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+        border-top: 1px solid var(--divider);
+        padding-top: 20px;
+      }
+      .eyebrow {
+        font-size: 12px;
+        font-weight: 600;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        color: var(--fg-muted);
+      }
+      .sec-head h2 {
+        font-size: 28px;
+        font-weight: 600;
+        letter-spacing: -0.02em;
+        line-height: 1.2;
+      }
+      .sec-head p {
+        color: var(--fg-muted);
+        max-width: 68ch;
+      }
+
+      .card {
+        background: var(--card);
+        border: 1px solid var(--divider);
+        box-shadow: var(--elev-card);
+        border-radius: var(--r-lg);
+        padding: 24px;
+      }
+
+      .stack {
+        display: flex;
+        flex-direction: column;
+        gap: 16px;
+      }
+      .sub {
+        font-size: 13px;
+        font-weight: 600;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+        color: var(--fg-muted);
+      }
+      .note {
+        font-size: 13px;
+        color: var(--fg-muted);
+        max-width: 72ch;
+      }
+      code {
+        font-family: var(--mono);
+        font-size: 0.9em;
+        background: var(--sunken);
+        padding: 2px 6px;
+        border-radius: 6px;
+      }
+
+      .readout {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        font-size: 14px;
+      }
+      .dot {
+        width: 10px;
+        height: 10px;
+        border-radius: 999px;
+        flex: none;
+        background: var(--fg-muted);
+      }
+      .dot.on {
+        background: var(--positive);
+      }
+
+      /* ---- corners ---- */
+      .tuner {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 16px;
+      }
+      .tuner label {
+        font-size: 13px;
+        font-weight: 500;
+      }
+      .tuner input[type="range"] {
+        flex: 1;
+        min-width: 220px;
+        accent-color: var(--primary);
+      }
+      .tuner output {
+        font-family: var(--mono);
+        font-size: 14px;
+        font-weight: 600;
+        color: var(--accent-text);
+        min-width: 3ch;
+      }
+
+      .curves {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 24px;
+      }
+      .curve {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 10px;
+      }
+      .curve-box {
+        width: 120px;
+        height: 120px;
+        border-radius: 52px;
+        background: var(--primary);
+      }
+      .curve-label {
+        font-family: var(--mono);
+        font-size: 12px;
+        color: var(--fg-muted);
+        text-align: center;
+      }
+      .curve.ours .curve-label {
+        color: var(--accent-text);
+        font-weight: 600;
+      }
+      .k1 {
+        --k: 1;
+      }
+      .k2 {
+        --k: 2;
+      }
+      .k25 {
+        --k: 2.5;
+      }
+      .k3 {
+        --k: 3;
+      }
+      .k5 {
+        --k: 5;
+      }
+
+      .radii {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 24px;
+      }
+      .radius {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 10px;
+      }
+      .radius-box {
+        width: 104px;
+        height: 80px;
+        background: var(--sunken);
+        border: 1px solid var(--control-border);
+      }
+      .rb-sm {
+        border-radius: var(--r-sm);
+      }
+      .rb-md {
+        border-radius: var(--r-md);
+      }
+      .rb-lg {
+        border-radius: var(--r-lg);
+      }
+      .rb-xl {
+        border-radius: var(--r-xl);
+      }
+
+      /* ---- color ---- */
+      .tokens {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+        gap: 16px;
+      }
+      .token {
+        display: flex;
+        align-items: center;
+        gap: 14px;
+        background: var(--card);
+        border: 1px solid var(--divider);
+        box-shadow: var(--elev-card);
+        padding: 14px;
+        border-radius: var(--r-md);
+      }
+      .swatch {
+        width: 44px;
+        height: 44px;
+        flex: none;
+        border-radius: var(--r-sm);
+        border: 1px solid rgb(0 0 0 / 0.08);
+      }
+      .token-body {
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+        min-width: 0;
+      }
+      .token-name {
+        font-size: 13px;
+        font-weight: 600;
+      }
+      .token-hex {
+        font-family: var(--mono);
+        font-size: 12px;
+        color: var(--fg-muted);
+      }
+      .pill {
+        display: inline-flex;
+        align-items: center;
+        font-family: var(--mono);
+        font-size: 11px;
+        padding: 2px 7px;
+        border-radius: var(--r-sm);
+        border: 1px solid var(--divider);
+        background: var(--sunken);
+        color: var(--fg-muted);
+        width: max-content;
+        margin-top: 4px;
+      }
+      .pill.pass {
+        color: var(--positive);
+      }
+      .pill.fail {
+        color: var(--negative);
+      }
+
+      .rejected .swatch {
+        position: relative;
+      }
+      .rejected .swatch::after {
+        content: "";
+        position: absolute;
+        inset: 0;
+        border-radius: inherit;
+        background: linear-gradient(
+          to bottom right,
+          transparent calc(50% - 1px),
+          var(--card) calc(50% - 1px),
+          var(--card) calc(50% + 1px),
+          transparent calc(50% + 1px)
+        );
+      }
+
+      /* ---- type ---- */
+      .scale {
+        display: flex;
+        flex-direction: column;
+        gap: 20px;
+      }
+      .row {
+        display: flex;
+        align-items: baseline;
+        gap: 20px;
+        flex-wrap: wrap;
+      }
+      .row-meta {
+        font-family: var(--mono);
+        font-size: 12px;
+        color: var(--fg-muted);
+        width: 200px;
+        flex: none;
+      }
+      .specimen {
+        text-wrap: balance;
+      }
+      .s-hero {
+        font-size: 40px;
+        font-weight: 600;
+        letter-spacing: -0.025em;
+        line-height: 1.1;
+      }
+      .s-display {
+        font-size: 28px;
+        font-weight: 600;
+        letter-spacing: -0.02em;
+        line-height: 1.2;
+      }
+      .s-title {
+        font-size: 20px;
+        font-weight: 600;
+        letter-spacing: -0.01em;
+        line-height: 1.3;
+      }
+      .s-subhead {
+        font-size: 17px;
+        font-weight: 500;
+        line-height: 1.4;
+      }
+      .s-body {
+        font-size: 15px;
+        font-weight: 400;
+        line-height: 1.6;
+      }
+      .s-label {
+        font-size: 13px;
+        font-weight: 500;
+        line-height: 1.4;
+      }
+      .s-caption {
+        font-size: 12px;
+        letter-spacing: 0.01em;
+        color: var(--fg-muted);
+      }
+
+      .numerals {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+        gap: 24px;
+      }
+      .num-col h3 {
+        font-size: 13px;
+        font-weight: 600;
+        margin-bottom: 10px;
+      }
+      .num-col ul {
+        list-style: none;
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+        font-size: 17px;
+      }
+      .tab {
+        font-variant-numeric: tabular-nums slashed-zero;
+      }
+      .prop {
+        font-variant-numeric: proportional-nums;
+      }
+
+      .weights {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 28px;
+      }
+      .weight {
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+      }
+      .weight span:first-child {
+        font-size: 24px;
+        letter-spacing: -0.01em;
+      }
+      .weight span:last-child {
+        font-family: var(--mono);
+        font-size: 11px;
+        color: var(--fg-muted);
+      }
+      .w300 {
+        font-weight: 300;
+      }
+      .w400 {
+        font-weight: 400;
+      }
+      .w500 {
+        font-weight: 500;
+      }
+      .w600 {
+        font-weight: 600;
+      }
+      .w700 {
+        font-weight: 700;
+      }
+      .unused {
+        opacity: 0.4;
+      }
+
+      /* ---- space ---- */
+      .space-list {
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+      }
+      .space-row {
+        display: flex;
+        align-items: center;
+        gap: 16px;
+      }
+      .bar {
+        height: 16px;
+        background: var(--primary);
+        border-radius: 4px;
+      }
+      .space-meta {
+        font-family: var(--mono);
+        font-size: 12px;
+        color: var(--fg-muted);
+      }
+
+      /* ---- components ---- */
+      .topbar {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        height: 56px;
+        padding: 0 16px;
+        background: var(--card);
+        border: 1px solid var(--divider);
+        border-radius: var(--r-md);
+        box-shadow: var(--elev-card);
+      }
+      .brand {
+        font-weight: 600;
+        letter-spacing: -0.01em;
+        margin-right: 12px;
+      }
+      .navlink {
+        font-size: 14px;
+        font-weight: 500;
+        color: var(--fg-muted);
+        padding: 6px 12px;
+        border-radius: var(--r-sm);
+        text-decoration: none;
+      }
+      .navlink.active {
+        color: var(--accent-text);
+        background: color-mix(in srgb, var(--primary) 10%, transparent);
+      }
+      .spacer {
+        flex: 1;
+      }
+
+      .btn {
+        font-family: inherit;
+        font-size: 14px;
+        font-weight: 500;
+        padding: 10px 18px;
+        border-radius: var(--r-md);
+        border: 1px solid transparent;
+        cursor: pointer;
+        transition:
+          background-color 0.18s var(--ease-ios),
+          box-shadow 0.18s var(--ease-ios),
+          transform 0.12s var(--ease-ios);
+      }
+      .btn:focus-visible {
+        outline: 2px solid var(--ring);
+        outline-offset: 2px;
+      }
+
+      .btn-primary {
+        background: var(--primary);
+        color: var(--primary-fg);
+        box-shadow: var(--elev-btn-primary), var(--inset-hi);
+      }
+      .btn-primary:hover {
+        background: var(--primary-hover);
+      }
+      .btn-primary:active {
+        background: var(--primary-active);
+        box-shadow: var(--elev-btn-pressed);
+        transform: scale(0.97);
+      }
+
+      .btn-secondary {
+        background: var(--card);
+        color: var(--fg);
+        border-color: var(--divider);
+        box-shadow: var(--elev-btn), var(--inset-hi);
+      }
+      .btn-secondary:hover {
+        background: var(--sunken);
+      }
+      .btn-secondary:active {
+        background: var(--sunken-hover);
+        box-shadow: var(--elev-btn-pressed);
+        transform: scale(0.97);
+      }
+
+      .btn-ghost {
+        background: transparent;
+        color: var(--accent-text);
+      }
+      .btn-ghost:hover {
+        background: color-mix(in srgb, var(--primary) 10%, transparent);
+      }
+      .btn-ghost:active {
+        transform: scale(0.97);
+      }
+
+      .btn-danger {
+        background: var(--negative);
+        color: #fff;
+        box-shadow: var(--elev-btn), var(--inset-hi);
+      }
+      .btn-danger:hover {
+        background: var(--negative-hover);
+      }
+      .btn-danger:active {
+        background: var(--negative-active);
+        box-shadow: var(--elev-btn-pressed);
+        transform: scale(0.97);
+      }
+
+      .btn-row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 12px;
+        align-items: center;
+      }
+
+      /* Frozen copies of the primary button's three states, side by side, since
+         you cannot hover and press one button at once. */
+      .state-strip {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 24px;
+        align-items: flex-end;
+      }
+      .state {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 8px;
+      }
+      .fake-btn {
+        font-size: 14px;
+        font-weight: 500;
+        padding: 10px 18px;
+        border-radius: var(--r-md);
+        background: var(--primary);
+        color: var(--primary-fg);
+        box-shadow: var(--elev-btn-primary), var(--inset-hi);
+      }
+      .fake-btn.is-hover {
+        background: var(--primary-hover);
+      }
+      .fake-btn.is-pressed {
+        background: var(--primary-active);
+        box-shadow: var(--elev-btn-pressed);
+        transform: scale(0.97);
+      }
+
+      .field {
+        font-family: inherit;
+        font-size: 14px;
+        padding: 10px 14px;
+        border-radius: var(--r-md);
+        border: 1px solid var(--control-border);
+        background: var(--card);
+        color: var(--fg);
+        min-width: 280px;
+      }
+      .field::placeholder {
+        color: var(--fg-muted);
+      }
+      .field:focus-visible {
+        outline: 2px solid var(--ring);
+        outline-offset: 1px;
+        border-color: transparent;
+      }
+
+      .kpis {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+        gap: 20px;
+      }
+      .kpi {
+        background: var(--card);
+        border: 1px solid var(--divider);
+        box-shadow: var(--elev-card);
+        border-radius: var(--r-lg);
+        padding: 20px;
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+      }
+      .kpi-label {
+        font-size: 13px;
+        font-weight: 500;
+        color: var(--fg-muted);
+      }
+      .kpi-value {
+        font-size: 28px;
+        font-weight: 600;
+        letter-spacing: -0.02em;
+        font-variant-numeric: tabular-nums slashed-zero;
+      }
+      .kpi-delta {
+        font-size: 13px;
+        font-weight: 500;
+        font-variant-numeric: tabular-nums;
+      }
+      .up {
+        color: var(--positive);
+      }
+      .down {
+        color: var(--negative);
+      }
+
+      .table-wrap {
+        overflow-x: auto;
+        border: 1px solid var(--divider);
+        border-radius: var(--r-lg);
+        background: var(--card);
+        box-shadow: var(--elev-card);
+      }
+      table {
+        border-collapse: collapse;
+        width: 100%;
+        min-width: 520px;
+      }
+      th,
+      td {
+        text-align: left;
+        padding: 12px 20px;
+        font-size: 14px;
+        border-bottom: 1px solid var(--divider);
+      }
+      th {
+        font-size: 12px;
+        font-weight: 600;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+        color: var(--fg-muted);
+      }
+      tbody tr:last-child td {
+        border-bottom: none;
+      }
+      td.num,
+      th.num {
+        text-align: right;
+        font-variant-numeric: tabular-nums slashed-zero;
+      }
+
+      .skeleton {
+        height: 14px;
+        border-radius: 6px;
+        background: linear-gradient(
+          90deg,
+          var(--sunken) 25%,
+          var(--sunken-hover) 37%,
+          var(--sunken) 63%
+        );
+        background-size: 400% 100%;
+        animation: shimmer 1.4s ease infinite;
+      }
+      @keyframes shimmer {
+        from {
+          background-position: 100% 50%;
+        }
+        to {
+          background-position: 0 50%;
+        }
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        .skeleton {
+          animation: none;
+        }
+        .btn {
+          transition: none;
+        }
+        .btn:active {
+          transform: none;
+        }
+      }
+    </style>
+  </head>
+
+  <body>
+    <div class="page">
+      <header class="masthead">
+        <div>
+          <h1>Corelantic Design System</h1>
+          <p>
+            The tokens every dashboard visual and the Ask-your-data panel will
+            inherit. Approve this and it becomes <code>globals.css</code>.
+          </p>
+          <div class="chips">
+            <span class="chip">Issue #10 · D1</span>
+            <span class="chip">Open Sans</span>
+            <span class="chip">Apple blue</span>
+            <span class="chip" id="chip-k">corner-shape: squircle</span>
+          </div>
+        </div>
+        <button class="btn btn-secondary" id="theme-toggle" type="button">
+          Switch to dark
+        </button>
+      </header>
+
+      <section>
+        <div class="sec-head">
+          <span class="eyebrow">Corners</span>
+          <h2>The squircle is the signature</h2>
+          <p>
+            <code>corner-shape</code> shipped in Chrome 139 and has no public
+            timeline for Safari or Firefox. The radius is the baseline; the
+            superellipse is a progressive enhancement. No polyfill, no
+            dependency, no bug report from a Safari user.
+          </p>
+        </div>
+
+        <div class="card">
+          <div class="readout">
+            <span class="dot" id="support-dot"></span>
+            <span id="support-text">Checking corner-shape support…</span>
+          </div>
+        </div>
+
+        <div class="card stack">
+          <div class="tuner">
+            <label for="k-slider">Curvature K</label>
+            <input
+              id="k-slider"
+              type="range"
+              min="1"
+              max="5"
+              step="0.1"
+              value="2"
+            />
+            <output id="k-value">2</output>
+          </div>
+          <p class="note">
+            Drag it. Every corner on this page re-shapes live, because
+            <code>corner-shape</code> reads a single inherited
+            <code>--k</code> custom property. Settled on K&nbsp;2, which is
+            exactly the <code>squircle</code> keyword — so the app ships
+            <code>corner-shape: squircle</code> and no magic number. The slider
+            stays for the next time someone wants to argue about it.
+          </p>
+        </div>
+
+        <div class="stack">
+          <span class="sub">Curvature — K in x²ᴷ + y²ᴷ = 1</span>
+          <div class="curves">
+            <div class="curve">
+              <div class="curve-box k1"></div>
+              <span class="curve-label">K 1<br />round</span>
+            </div>
+            <div class="curve ours">
+              <div class="curve-box k2"></div>
+              <span class="curve-label">K 2<br />ours · `squircle`</span>
+            </div>
+            <div class="curve">
+              <div class="curve-box k25"></div>
+              <span class="curve-label">K 2.5<br />Apple</span>
+            </div>
+            <div class="curve">
+              <div class="curve-box k3"></div>
+              <span class="curve-label">K 3<br />firmer</span>
+            </div>
+            <div class="curve">
+              <div class="curve-box k5"></div>
+              <span class="curve-label">K 5<br />nearly square</span>
+            </div>
+          </div>
+          <p class="note">
+            These five ignore the slider so they stay a fixed reference. They
+            are 120px boxes with a 52px radius — a 43% ratio, where the shape
+            reads clearly. That ratio is the thing nobody mentions: on a 400px
+            card with a 20px radius, a squircle and a circle differ by about a
+            pixel. Corners announce themselves on buttons and tiles, not on
+            panels.
+          </p>
+        </div>
+
+        <div class="stack">
+          <span class="sub">Radius scale</span>
+          <div class="radii">
+            <div class="radius">
+              <div class="radius-box rb-sm"></div>
+              <span class="curve-label">10px<br />inputs, badges</span>
+            </div>
+            <div class="radius">
+              <div class="radius-box rb-md"></div>
+              <span class="curve-label">14px<br />buttons, controls</span>
+            </div>
+            <div class="radius">
+              <div class="radius-box rb-lg"></div>
+              <span class="curve-label">20px<br />cards</span>
+            </div>
+            <div class="radius">
+              <div class="radius-box rb-xl"></div>
+              <span class="curve-label">28px<br />panels, dialogs</span>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section>
+        <div class="sec-head">
+          <span class="eyebrow">Elevation</span>
+          <h2>Buttons that press</h2>
+          <p>
+            An iOS button is a tight contact shadow, a wider ambient one, and a
+            1px inset highlight along the top edge. On press it darkens, loses
+            the ambient shadow, and scales to 97%.
+          </p>
+        </div>
+
+        <div class="card stack">
+          <div class="state-strip">
+            <div class="state">
+              <div class="fake-btn">Run query</div>
+              <span class="curve-label">rest · #0071E3</span>
+            </div>
+            <div class="state">
+              <div class="fake-btn is-hover">Run query</div>
+              <span class="curve-label">hover · #006BDA</span>
+            </div>
+            <div class="state">
+              <div class="fake-btn is-pressed">Run query</div>
+              <span class="curve-label">pressed · #0064C8</span>
+            </div>
+          </div>
+          <p class="note">
+            The button <strong>darkens</strong> on hover rather than lightening,
+            which is both what iOS does and the only option available to us:
+            <code>#0077ED</code>, the obvious lighter hover, drops white text to
+            4.32:1. For the same reason the fill carries no gradient — every
+            stop lighter than <code>#0071E3</code> fails AA. The lift comes from
+            shadow and the inset highlight instead.
+          </p>
+        </div>
+      </section>
+
+      <section>
+        <div class="sec-head">
+          <span class="eyebrow">Color</span>
+          <h2>Apple's blue, split in two</h2>
+          <p>
+            Every pair below clears WCAG AA. The fill blue and the text blue are
+            different values because one carries white text and the other sits
+            on a light ground — a single blue cannot pass both. Ratios were
+            computed, not eyeballed.
+          </p>
+        </div>
+
+        <div class="tokens">
+          <div class="token">
+            <div class="swatch" style="background: var(--primary)"></div>
+            <div class="token-body">
+              <span class="token-name">primary — fill</span>
+              <span class="token-hex">#0071E3 · both themes</span>
+              <span class="pill pass">4.70:1 white text · AA</span>
+            </div>
+          </div>
+          <div class="token">
+            <div class="swatch" style="background: var(--accent-text)"></div>
+            <div class="token-body">
+              <span class="token-name">primary — text, ring</span>
+              <span class="token-hex">#0066CC light / #0A84FF dark</span>
+              <span class="pill pass">5.11:1 on page · AA</span>
+            </div>
+          </div>
+          <div class="token">
+            <div class="swatch" style="background: var(--page)"></div>
+            <div class="token-body">
+              <span class="token-name">page</span>
+              <span class="token-hex">#F5F5F7 light / #0B0B0C dark</span>
+              <span class="pill">gray page, white card</span>
+            </div>
+          </div>
+          <div class="token">
+            <div class="swatch" style="background: var(--card)"></div>
+            <div class="token-body">
+              <span class="token-name">card</span>
+              <span class="token-hex">#FFFFFF light / #161618 dark</span>
+              <span class="pill">elevated, hairline + shadow</span>
+            </div>
+          </div>
+          <div class="token">
+            <div class="swatch" style="background: var(--fg)"></div>
+            <div class="token-body">
+              <span class="token-name">foreground</span>
+              <span class="token-hex">#1D1D1F light / #F5F5F7 dark</span>
+              <span class="pill pass">15.46:1 on page · AAA</span>
+            </div>
+          </div>
+          <div class="token">
+            <div class="swatch" style="background: var(--fg-muted)"></div>
+            <div class="token-body">
+              <span class="token-name">muted foreground</span>
+              <span class="token-hex">#6E6E73 light / #98989D dark</span>
+              <span class="pill pass">4.66:1 on page · AA</span>
+            </div>
+          </div>
+          <div class="token">
+            <div class="swatch" style="background: var(--divider)"></div>
+            <div class="token-body">
+              <span class="token-name">divider — decorative</span>
+              <span class="token-hex">#D8D8DC light / #2A2A2D dark</span>
+              <span class="pill">hairline only</span>
+            </div>
+          </div>
+          <div class="token">
+            <div class="swatch" style="background: var(--control-border)"></div>
+            <div class="token-body">
+              <span class="token-name">control border</span>
+              <span class="token-hex">#86868B light / #6E6E73 dark</span>
+              <span class="pill pass">3.62:1 · AA non-text</span>
+            </div>
+          </div>
+          <div class="token">
+            <div class="swatch" style="background: var(--positive)"></div>
+            <div class="token-body">
+              <span class="token-name">positive</span>
+              <span class="token-hex">#087443 light / #30D158 dark</span>
+              <span class="pill pass">5.37:1 on page · AA</span>
+            </div>
+          </div>
+          <div class="token">
+            <div class="swatch" style="background: var(--negative)"></div>
+            <div class="token-body">
+              <span class="token-name">negative</span>
+              <span class="token-hex">#D70015 light / #FF453A dark</span>
+              <span class="pill pass">4.94:1 on page · AA</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="stack rejected">
+          <span class="sub">Rejected, and why</span>
+          <div class="tokens">
+            <div class="token">
+              <div class="swatch" style="background: #007aff"></div>
+              <div class="token-body">
+                <span class="token-name">#007AFF — iOS system blue</span>
+                <span class="token-hex">the blue most people mean</span>
+                <span class="pill fail">4.02:1 white text · fails AA</span>
+              </div>
+            </div>
+            <div class="token">
+              <div class="swatch" style="background: #0a84ff"></div>
+              <div class="token-body">
+                <span class="token-name">#0A84FF — as a fill</span>
+                <span class="token-hex">fine as text on dark, not a button</span>
+                <span class="pill fail">3.65:1 white text · fails AA</span>
+              </div>
+            </div>
+            <div class="token">
+              <div class="swatch" style="background: #0077ed"></div>
+              <div class="token-body">
+                <span class="token-name">#0077ED — as a hover</span>
+                <span class="token-hex">lightening on hover breaks AA</span>
+                <span class="pill fail">4.32:1 white text · fails AA</span>
+              </div>
+            </div>
+            <div class="token">
+              <div class="swatch" style="background: #86868b"></div>
+              <div class="token-body">
+                <span class="token-name">#86868B — as body text</span>
+                <span class="token-hex">Apple's secondary gray</span>
+                <span class="pill fail">3.62:1 on white · fails AA</span>
+              </div>
+            </div>
+          </div>
+          <p class="note">
+            Apple ships all four. They are setting marketing copy; our users are
+            reading a voucher rate off a tile. <code>#86868B</code> survives as
+            a control border, where the 3:1 non-text floor applies instead.
+          </p>
+        </div>
+      </section>
+
+      <section>
+        <div class="sec-head">
+          <span class="eyebrow">Type</span>
+          <h2>Open Sans, tightened</h2>
+          <p>
+            A humanist face where the reference uses a neo-grotesque, so tracking
+            pulls in as size goes up and headings stop at 600. The face carries
+            <code>tnum</code> and <code>zero</code>, which is what makes a column
+            of figures line up.
+          </p>
+        </div>
+
+        <div class="card scale">
+          <div class="row">
+            <span class="row-meta">40px / 600 / −0.025em</span>
+            <span class="specimen s-hero">Executive overview</span>
+          </div>
+          <div class="row">
+            <span class="row-meta">28px / 600 / −0.02em</span>
+            <span class="specimen s-display">Leads by week</span>
+          </div>
+          <div class="row">
+            <span class="row-meta">20px / 600 / −0.01em</span>
+            <span class="specimen s-title">Intake funnel</span>
+          </div>
+          <div class="row">
+            <span class="row-meta">17px / 500</span>
+            <span class="specimen s-subhead"
+              >Lead → Voucher → Bank Complete</span
+            >
+          </div>
+          <div class="row">
+            <span class="row-meta">15px / 400 / body</span>
+            <span class="specimen s-body"
+              >Of 86,973 leads, 24.1% reached a voucher and 14.7% reached Bank
+              Complete.</span
+            >
+          </div>
+          <div class="row">
+            <span class="row-meta">13px / 500 / label</span>
+            <span class="specimen s-label">Cost per lead</span>
+          </div>
+          <div class="row">
+            <span class="row-meta">12px / 400 / caption</span>
+            <span class="specimen s-caption"
+              >Revenue is derived: vouchers × $6,000.</span
+            >
+          </div>
+        </div>
+
+        <div class="stack">
+          <span class="sub">Weights — 300 to 800 available, three in use</span>
+          <div class="card">
+            <div class="weights">
+              <div class="weight unused">
+                <span class="w300">Voucher</span><span>300 · unused</span>
+              </div>
+              <div class="weight">
+                <span class="w400">Voucher</span><span>400 · body</span>
+              </div>
+              <div class="weight">
+                <span class="w500">Voucher</span><span>500 · labels, UI</span>
+              </div>
+              <div class="weight">
+                <span class="w600">Voucher</span><span>600 · headings</span>
+              </div>
+              <div class="weight unused">
+                <span class="w700">Voucher</span><span>700 · unused</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="stack">
+          <span class="sub">Numerals — why tabular matters</span>
+          <div class="card">
+            <div class="numerals">
+              <div class="num-col">
+                <h3>Tabular + slashed zero</h3>
+                <ul class="tab">
+                  <li>86,973</li>
+                  <li>92,741</li>
+                  <li>20,105</li>
+                  <li>&nbsp;&nbsp;4.44%</li>
+                  <li>80.86%</li>
+                </ul>
+              </div>
+              <div class="num-col">
+                <h3>Proportional — the default</h3>
+                <ul class="prop">
+                  <li>86,973</li>
+                  <li>92,741</li>
+                  <li>20,105</li>
+                  <li>&nbsp;&nbsp;4.44%</li>
+                  <li>80.86%</li>
+                </ul>
+              </div>
+            </div>
+            <p class="note" style="margin-top: 16px">
+              The 1s and 9s drift in the right column. Every KPI value, table
+              cell, and axis label sets
+              <code>font-variant-numeric: tabular-nums slashed-zero</code>.
+            </p>
+          </div>
+        </div>
+      </section>
+
+      <section>
+        <div class="sec-head">
+          <span class="eyebrow">Space</span>
+          <h2>A 4px base, an 8px rhythm</h2>
+          <p>
+            Cards get 24px of padding, grids 20px of gap, the page 24px of
+            gutter. Content stops at 1400px — dashboards want width, but not
+            infinite width.
+          </p>
+        </div>
+        <div class="card space-list">
+          <div class="space-row">
+            <div class="bar" style="width: 4px"></div>
+            <span class="space-meta">4 · icon gap</span>
+          </div>
+          <div class="space-row">
+            <div class="bar" style="width: 8px"></div>
+            <span class="space-meta">8 · inline gap</span>
+          </div>
+          <div class="space-row">
+            <div class="bar" style="width: 12px"></div>
+            <span class="space-meta">12 · control gap</span>
+          </div>
+          <div class="space-row">
+            <div class="bar" style="width: 16px"></div>
+            <span class="space-meta">16 · stack gap</span>
+          </div>
+          <div class="space-row">
+            <div class="bar" style="width: 20px"></div>
+            <span class="space-meta">20 · grid gap, KPI padding</span>
+          </div>
+          <div class="space-row">
+            <div class="bar" style="width: 24px"></div>
+            <span class="space-meta">24 · card padding, page gutter</span>
+          </div>
+          <div class="space-row">
+            <div class="bar" style="width: 32px"></div>
+            <span class="space-meta">32 · section gap</span>
+          </div>
+          <div class="space-row">
+            <div class="bar" style="width: 48px"></div>
+            <span class="space-meta">48 · page top</span>
+          </div>
+        </div>
+      </section>
+
+      <section>
+        <div class="sec-head">
+          <span class="eyebrow">Components</span>
+          <h2>The tokens, doing work</h2>
+          <p>
+            Real numbers from the live warehouse. The week-over-week deltas are
+            placeholders — D4 computes those.
+          </p>
+        </div>
+
+        <div class="stack">
+          <span class="sub">Shell — top bar, 56px</span>
+          <nav class="topbar">
+            <span class="brand">Corelantic</span>
+            <a class="navlink active" href="#">Dashboard</a>
+            <a class="navlink" href="#">Ask your data</a>
+            <span class="spacer"></span>
+            <button class="btn btn-ghost" type="button">Theme</button>
+          </nav>
+        </div>
+
+        <div class="stack">
+          <span class="sub">KPI tiles</span>
+          <div class="kpis">
+            <div class="kpi">
+              <span class="kpi-label">New leads</span>
+              <span class="kpi-value">86,973</span>
+              <span class="kpi-delta up">▲ 2.4% vs last week</span>
+            </div>
+            <div class="kpi">
+              <span class="kpi-label">Voucher rate</span>
+              <span class="kpi-value">24.1%</span>
+              <span class="kpi-delta up">▲ 0.3 pts vs last week</span>
+            </div>
+            <div class="kpi">
+              <span class="kpi-label">Answer rate</span>
+              <span class="kpi-value">80.86%</span>
+              <span class="kpi-delta down">▼ 1.1 pts vs last week</span>
+            </div>
+            <div class="kpi">
+              <span class="kpi-label">Agent conversion</span>
+              <span class="kpi-value">4.44%</span>
+              <span class="kpi-delta down">▼ 0.2 pts vs last week</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="stack">
+          <span class="sub">Buttons and inputs — hover and press them</span>
+          <div class="card stack">
+            <div class="btn-row">
+              <button class="btn btn-primary" type="button">Run query</button>
+              <button class="btn btn-secondary" type="button">Export</button>
+              <button class="btn btn-ghost" type="button">Reset filters</button>
+              <button class="btn btn-danger" type="button">Clear session</button>
+            </div>
+            <div class="btn-row">
+              <input
+                class="field"
+                type="text"
+                placeholder="Ask your data — try “leads by channel”"
+                aria-label="Ask your data"
+              />
+              <button class="btn btn-primary" type="button">Ask</button>
+            </div>
+            <p class="note">Tab to any control to see the focus ring.</p>
+          </div>
+        </div>
+
+        <div class="stack">
+          <span class="sub">Table — the intake funnel</span>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th scope="col">Stage</th>
+                  <th scope="col" class="num">Leads</th>
+                  <th scope="col" class="num">Share</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>Lead</td>
+                  <td class="num">86,973</td>
+                  <td class="num">100.0%</td>
+                </tr>
+                <tr>
+                  <td>Voucher</td>
+                  <td class="num">21,047</td>
+                  <td class="num">24.2%</td>
+                </tr>
+                <tr>
+                  <td>X-Ray</td>
+                  <td class="num">18,302</td>
+                  <td class="num">21.0%</td>
+                </tr>
+                <tr>
+                  <td>B-Read</td>
+                  <td class="num">16,455</td>
+                  <td class="num">18.9%</td>
+                </tr>
+                <tr>
+                  <td>Clinic</td>
+                  <td class="num">14,890</td>
+                  <td class="num">17.1%</td>
+                </tr>
+                <tr>
+                  <td>Bank Complete</td>
+                  <td class="num">12,785</td>
+                  <td class="num">14.7%</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <p class="note">
+            Lead, Voucher and Bank Complete are measured. The three middle rows
+            are interpolated for this sheet — the real numbers land with D5.
+          </p>
+        </div>
+
+        <div class="stack">
+          <span class="sub">Loading</span>
+          <div class="card stack">
+            <div class="skeleton" style="width: 40%"></div>
+            <div class="skeleton" style="width: 85%"></div>
+            <div class="skeleton" style="width: 70%"></div>
+          </div>
+        </div>
+      </section>
+    </div>
+
+    <script>
+      const root = document.documentElement;
+
+      const toggle = document.getElementById("theme-toggle");
+      const currentTheme = () =>
+        root.dataset.theme ??
+        (matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
+      const paintToggle = () => {
+        toggle.textContent =
+          currentTheme() === "dark" ? "Switch to light" : "Switch to dark";
+      };
+      toggle.addEventListener("click", () => {
+        root.dataset.theme = currentTheme() === "dark" ? "light" : "dark";
+        paintToggle();
+      });
+      matchMedia("(prefers-color-scheme: dark)").addEventListener(
+        "change",
+        paintToggle,
+      );
+      paintToggle();
+
+      const slider = document.getElementById("k-slider");
+      const kValue = document.getElementById("k-value");
+      const kChip = document.getElementById("chip-k");
+      slider.addEventListener("input", () => {
+        root.style.setProperty("--k", slider.value);
+        kValue.textContent = slider.value;
+        kChip.textContent = `superellipse(${slider.value})`;
+      });
+
+      const supported = CSS.supports("corner-shape", "squircle");
+      const dot = document.getElementById("support-dot");
+      const text = document.getElementById("support-text");
+      if (supported) dot.classList.add("on");
+      text.innerHTML = supported
+        ? "This browser paints <strong>true superellipse corners</strong>. Everything below is real."
+        : "This browser falls back to <strong>plain border-radius</strong>. The five reference shapes will look identical and the slider will do nothing — that is the fallback working, not a bug.";
+    </script>
+  </body>
+</html>

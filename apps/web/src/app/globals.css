@@ -1,28 +1,200 @@
 @import "tailwindcss";
 
-/* Minimal theme foundation. The full Corelantic brand theme (and shadcn tokens)
-   lands when we build the app shell; this is enough for a clean skeleton. */
+/* next-themes resolves the OS preference to a `.dark` class on <html>, so the
+   theme is a class and never a media query — a media query would override the
+   user's explicit choice on a dark-OS machine, and charts need the theme as a
+   JS value anyway (see components/theme-provider.tsx). */
+@custom-variant dark (&:is(.dark *));
+
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-primary-hover: var(--primary-hover);
+  --color-primary-active: var(--primary-active);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
   --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
   --color-border: var(--border);
-  --font-sans: var(--font-sans);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-ring: var(--sidebar-ring);
+
+  --font-sans: var(--font-open-sans);
+  --font-heading: var(--font-open-sans);
+
+  /* 0.875rem lands shadcn's derived scale on our spec: lg (buttons) = 14px,
+     xl (cards) = 19.6px, md (inputs, badges) = 11.2px. */
+  --radius-sm: calc(var(--radius) * 0.6);
+  --radius-md: calc(var(--radius) * 0.8);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) * 1.4);
+  --radius-2xl: calc(var(--radius) * 1.8);
+  --radius-3xl: calc(var(--radius) * 2.2);
+  --radius-4xl: calc(var(--radius) * 2.6);
+
+  --shadow-card: var(--elevation-card);
+  --shadow-button: var(--elevation-button);
+  --shadow-button-pressed: var(--elevation-button-pressed);
+
+  --ease-ios: cubic-bezier(0.32, 0.72, 0, 1);
 }
 
+/* Palette. Every foreground/background pair here clears WCAG AA; the ratios are
+   recorded in docs/design/design-system.html alongside the values we rejected.
+   Two rules are load-bearing and look like mistakes otherwise:
+
+   1. The page is grey and the card is white (Apple's inversion, not shadcn's
+      white-on-white). Elevation is a hairline plus a 4% shadow, never a drop.
+   2. `--primary` (fill, carries white text) and `--ring` (blue as text, sits on
+      a light ground) are different blues. No single blue passes both. */
 :root {
-  --background: #fafaf9;
-  --foreground: #1c1917;
-  --muted-foreground: #78716c;
-  --border: #e7e5e4;
-  --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --background: #f5f5f7;
+  --foreground: #1d1d1f;
+  --card: #ffffff;
+  --card-foreground: #1d1d1f;
+  --popover: #ffffff;
+  --popover-foreground: #1d1d1f;
+
+  --primary: #0071e3;
+  --primary-foreground: #ffffff;
+  /* Buttons darken on press, as iOS does. They cannot lighten: #0077ED drops
+     white text to 4.32:1, and every stop lighter than --primary fails AA — which
+     is also why the fill carries no gradient. */
+  --primary-hover: #006bda;
+  --primary-active: #0064c8;
+
+  --secondary: #ededef;
+  --secondary-foreground: #1d1d1f;
+  --muted: #ededef;
+  --muted-foreground: #6e6e73;
+  --accent: #ededef;
+  --accent-foreground: #1d1d1f;
+  --destructive: #d70015;
+
+  --border: #d8d8dc;
+  /* Control boundaries clear the 3:1 non-text floor; --border is a decorative
+     hairline and deliberately does not. */
+  --input: #86868b;
+  --ring: #0066cc;
+
+  --radius: 0.875rem;
+
+  --elevation-card: 0 1px 2px rgb(0 0 0 / 0.05), 0 1px 1px rgb(0 0 0 / 0.03);
+  --elevation-button:
+    0 1px 1px rgb(0 0 0 / 0.08),
+    0 4px 10px color-mix(in srgb, var(--primary) 32%, transparent),
+    inset 0 1px 0 rgb(255 255 255 / 0.18);
+  --elevation-button-pressed: 0 1px 1px rgb(0 0 0 / 0.06);
+
+  /* Unused until D2 settles the categorical palette (docs O-5). Defined so a
+     `shadcn add` never resolves a chart or sidebar token to nothing. */
+  --chart-1: oklch(0.87 0 0);
+  --chart-2: oklch(0.556 0 0);
+  --chart-3: oklch(0.439 0 0);
+  --chart-4: oklch(0.371 0 0);
+  --chart-5: oklch(0.269 0 0);
+  --sidebar: #ffffff;
+  --sidebar-foreground: #1d1d1f;
+  --sidebar-primary: #0071e3;
+  --sidebar-primary-foreground: #ffffff;
+  --sidebar-accent: #ededef;
+  --sidebar-accent-foreground: #1d1d1f;
+  --sidebar-border: #d8d8dc;
+  --sidebar-ring: #0066cc;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0c0a09;
-    --foreground: #f5f5f4;
-    --muted-foreground: #a8a29e;
-    --border: #292524;
+.dark {
+  --background: #0b0b0c;
+  --foreground: #f5f5f7;
+  --card: #161618;
+  --card-foreground: #f5f5f7;
+  --popover: #161618;
+  --popover-foreground: #f5f5f7;
+
+  /* The fill stays #0071E3 in dark. Apple's #0A84FF is the brighter dark-mode
+     blue but only carries white text at 3.65:1, so it serves as --ring instead. */
+  --primary: #0071e3;
+  --primary-foreground: #ffffff;
+  --primary-hover: #006bda;
+  --primary-active: #0064c8;
+
+  --secondary: #1f1f22;
+  --secondary-foreground: #f5f5f7;
+  --muted: #1f1f22;
+  --muted-foreground: #98989d;
+  --accent: #1f1f22;
+  --accent-foreground: #f5f5f7;
+  --destructive: #ff453a;
+
+  --border: #2a2a2d;
+  --input: #6e6e73;
+  --ring: #0a84ff;
+
+  /* Drop shadows are invisible on near-black; the blue's own glow does the lift. */
+  --elevation-card: none;
+  --elevation-button:
+    0 2px 8px color-mix(in srgb, var(--primary) 40%, transparent),
+    inset 0 1px 0 rgb(255 255 255 / 0.12);
+  --elevation-button-pressed: none;
+
+  --sidebar: #161618;
+  --sidebar-foreground: #f5f5f7;
+  --sidebar-primary: #0071e3;
+  --sidebar-primary-foreground: #ffffff;
+  --sidebar-accent: #1f1f22;
+  --sidebar-accent-foreground: #f5f5f7;
+  --sidebar-border: #2a2a2d;
+  --sidebar-ring: #0a84ff;
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+
+  body {
+    @apply bg-background text-foreground;
+  }
+
+  /* corner-shape is inert without a border-radius, so the universal selector is
+     safe — and it is the only way to avoid a hand-maintained list of selectors
+     that silently misses half the app. Chromium paints the superellipse; Safari
+     and Firefox keep the radius. Chrome 139+; no polyfill, no dependency. */
+  @supports (corner-shape: squircle) {
+    * {
+      corner-shape: squircle;
+    }
+    /* Capsules and circles stay capsules and circles. */
+    :where(.rounded-full) {
+      corner-shape: round;
+    }
+  }
+
+  /* Figures line up in a column: tabular-nums stops the 1s and 9s drifting,
+     slashed-zero keeps 0 and O apart in an ID. */
+  [data-numeric] {
+    font-variant-numeric: tabular-nums slashed-zero;
   }
 }
