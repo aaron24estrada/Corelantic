@@ -152,12 +152,17 @@
   --input: #6e6e73;
   --ring: #0a84ff;
 
-  /* Drop shadows are invisible on near-black; the blue's own glow does the lift. */
-  --elevation-card: none;
+  /* Drop shadows are invisible on near-black; the blue's own glow does the lift.
+     `0 0 #0000` and not `none`: these feed Tailwind's `shadow-*` utilities, which
+     compose them into one box-shadow list alongside the ring layers. `none` is
+     only legal as the whole property, so it invalidates the declaration and takes
+     the focus ring down with it — a pressed, keyboard-focused button loses its
+     ring. A transparent shadow composes and is invisible. */
+  --elevation-card: 0 0 #0000;
   --elevation-button:
     0 2px 8px color-mix(in srgb, var(--primary) 40%, transparent),
     inset 0 1px 0 rgb(255 255 255 / 0.12);
-  --elevation-button-pressed: none;
+  --elevation-button-pressed: 0 0 #0000;
 
   --sidebar: #161618;
   --sidebar-foreground: #f5f5f7;
