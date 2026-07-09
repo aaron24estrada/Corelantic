@@ -38,7 +38,7 @@ from app.query.errors import DateDimensionError, FilteredMeasureConflictError
 from app.query.formula import build_formula, safe_divide
 from app.query.intent import QueryIntent
 from app.query.time import DateBucket, DateRange, Grain
-from app.semantic.errors import JoinFanOutError
+from app.semantic.errors import JoinFanOutError, NoJoinPathError
 from app.semantic.joins import JoinStep, find_join_path
 from app.semantic.models import (
     Aggregation,
@@ -131,15 +131,17 @@ def _compile_temporal(
     )
     plan = _build_plan(base, references, registry)
 
-    bucket = DateBucket(
-        _bucket_grain(metric, intent), plan.col(date_dimension.entity, date_dimension.column)
-    )
+    date_col = plan.col(date_dimension.entity, date_dimension.column)
+    bucket = DateBucket(_bucket_grain(metric, intent), date_col)
     inner: list[ColumnElement[Any]] = [bucket.label("period")]
     inner += [plan.col(d.entity, d.column).label(d.name) for d in group_dimensions]
     inner.append(_measure_expression(measure, plan).label("value"))
 
     aggregate = select(*inner).select_from(plan.from_clause)
     aggregate = _apply_where(aggregate, intent, filter_dimensions, date_dimension, plan)
+    # An undated row has no place in an ordered period series: it would bucket to NULL, sort
+    # ahead of every real period, and LAG / the running sum would read across it.
+    aggregate = aggregate.where(date_col.is_not(None))
     aggregate = aggregate.group_by(
         bucket, *(plan.col(d.entity, d.column) for d in group_dimensions)
     )
@@ -313,25 +315,51 @@ def _bucket_grain(metric: ComparisonMetric | CumulativeMetric, intent: QueryInte
     return intent.grain or Grain.DAY
 
 
+def _joinable_without_fan_out(base: str, entity: str, registry: SemanticRegistry) -> bool:
+    """Whether ``entity`` can be joined to ``base`` without multiplying the base's rows."""
+
+    if entity == base:
+        return True
+    try:
+        steps = find_join_path(base, entity, registry)
+    except NoJoinPathError:
+        return False
+    return not any(step.fans_out for step in steps)
+
+
 def _resolve_date_dimension(
     intent: QueryIntent, base: str, registry: SemanticRegistry
 ) -> Dimension:
+    """The date dimension to bucket and range on: the base's own, or one safely joined in.
+
+    A funnel metric lives on ``stages`` but is trended by the lead's intake date on
+    ``cases`` — reachable many-to-one, so joining it neither fans out nor changes the
+    aggregate. A path that *would* fan out is refused: it would inflate the measure.
+    """
+
     if intent.date_dimension is not None:
         dimension = registry.dimension(intent.date_dimension)  # UnknownDimensionError if absent
         if dimension.date_role is None:
             raise DateDimensionError(base, f"{dimension.name!r} is not a date dimension")
-        if dimension.entity != base:
-            raise DateDimensionError(base, f"{dimension.name!r} is on {dimension.entity!r}")
+        if not _joinable_without_fan_out(base, dimension.entity, registry):
+            raise DateDimensionError(
+                base, f"{dimension.name!r} is on {dimension.entity!r}, not safely joinable"
+            )
         return dimension
 
-    temporal = [
-        d for d in registry.dimensions.values() if d.date_role is not None and d.entity == base
+    reachable = [
+        d
+        for d in registry.dimensions.values()
+        if d.date_role is not None and _joinable_without_fan_out(base, d.entity, registry)
     ]
-    if len(temporal) == 1:
-        return temporal[0]
-    if not temporal:
-        raise DateDimensionError(base, "the entity has no date dimension")
-    names = sorted(d.name for d in temporal)
+    if len(reachable) == 1:
+        return reachable[0]
+    if not reachable:
+        raise DateDimensionError(base, "no date dimension is reachable")
+    # Never guess between date roles (lead vs referral vs stage): which one a question means
+    # changes the answer, so the intent must say. Preferring the base's own would silently
+    # re-anchor a trend the day an entity gains a date of its own.
+    names = sorted(d.name for d in reachable)
     raise DateDimensionError(base, f"several date dimensions {names}; name one")
 
 
