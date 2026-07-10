@@ -5,15 +5,22 @@ hide ones it would answer — and a planner reading it would learn a vocabulary 
 exist. These tests assert they cannot.
 """
 
+from datetime import date
 from pathlib import Path
 from typing import Any
 
 import pytest
 
 from app.query.compiler import compile_query
-from app.query.errors import IntentError
+from app.query.errors import (
+    AccumulationResetError,
+    CompareWithAccumulateError,
+    DateGroupByError,
+    NotAdditiveError,
+    PartialAccumulationError,
+)
 from app.query.intent import Accumulation, Comparison, QueryIntent
-from app.query.time import Grain, RelativeRange
+from app.query.time import DateRange, Grain, RelativeRange
 from app.semantic.registry import load_registry
 from app.services.catalog import build_catalog
 
@@ -60,11 +67,15 @@ def test_revenue_is_advertised_as_accumulable_because_it_declares_additive(catal
     assert revenue.supports.accumulate is True
 
 
+def _resets(catalog: Any, grain: Grain) -> list[Grain]:
+    return next(rule.resets for rule in catalog.accumulation_resets if rule.grain is grain)
+
+
 def test_the_accumulation_reset_table_is_the_calendar_not_an_ordering(catalog: Any) -> None:
     # A week straddles a month boundary, so a weekly bucket cannot reset monthly.
-    assert catalog.accumulation_resets[Grain.WEEK] == [Grain.YEAR]
-    assert Grain.MONTH in catalog.accumulation_resets[Grain.DAY]
-    assert catalog.accumulation_resets[Grain.YEAR] == []
+    assert _resets(catalog, Grain.WEEK) == [Grain.YEAR]
+    assert Grain.MONTH in _resets(catalog, Grain.DAY)
+    assert _resets(catalog, Grain.YEAR) == []
 
 
 def test_the_closed_enums_are_published(catalog: Any) -> None:
@@ -86,32 +97,99 @@ def test_a_date_dimension_publishes_its_role(catalog: Any) -> None:
 def test_everything_the_catalog_advertises_actually_compiles(catalog: Any, registry: Any) -> None:
     """The anti-drift guarantee, from the catalog's side rather than the validator's.
 
-    Every groupable dimension must compile; every supported modifier must compile; and a
-    modifier the catalog withholds must be refused. A planner that obeys the catalog can never
-    be told 422.
+    Every dimension it advertises must group *and* filter; every modifier it says a metric
+    supports must compile; every modifier it withholds must be refused.
+
+    This bounds the **vocabulary**, not the shape of a request — see the tests below for the
+    three refusals a catalog-obedient planner can still earn.
     """
 
     checked = 0
     for metric in catalog.metrics:
         for name in metric.groupable_dimensions:
+            # Advertised for both slicing paths, because one rule governs both.
             compile_query(QueryIntent(metric=metric.name, group_by=[name]), registry)
-            checked += 1
+            compile_query(QueryIntent(metric=metric.name, filters={name: "any"}), registry)
+            checked += 2
 
-        anchored = {"metric": metric.name, "grain": Grain.WEEK}
+        anchored: dict[str, Any] = {"metric": metric.name, "grain": Grain.WEEK}
         if len(metric.date_dimensions) > 1:
             anchored["date_dimension"] = metric.date_dimensions[0]
 
         if metric.supports.compare:
             compile_query(QueryIntent(**anchored, compare=Comparison()), registry)
         if metric.supports.accumulate:
+            # Every grain nests in a year, so YEAR is always a legal reset here.
             compile_query(
                 QueryIntent(**anchored, accumulate=Accumulation(reset=Grain.YEAR)), registry
             )
         else:
-            with pytest.raises(IntentError):
+            with pytest.raises(NotAdditiveError):
                 compile_query(
                     QueryIntent(**anchored, accumulate=Accumulation(reset=Grain.YEAR)), registry
                 )
         checked += 1
 
     assert checked > 100
+
+
+def test_every_reset_the_catalog_advertises_compiles(catalog: Any, registry: Any) -> None:
+    # accumulation_resets is the only place the grain/reset rule is published, so it has to be
+    # exactly what validate_intent accepts — not a superset, and not a subset.
+    metric = next(m for m in catalog.metrics if m.supports.accumulate)
+    for rule in catalog.accumulation_resets:
+        grain, resets = rule.grain, rule.resets
+        for reset in resets:
+            compile_query(
+                QueryIntent(metric=metric.name, grain=grain, accumulate=Accumulation(reset=reset)),
+                registry,
+            )
+        for rejected in set(Grain) - set(resets):
+            with pytest.raises(AccumulationResetError):
+                compile_query(
+                    QueryIntent(
+                        metric=metric.name, grain=grain, accumulate=Accumulation(reset=rejected)
+                    ),
+                    registry,
+                )
+
+
+# --- what the catalog cannot bound ----------------------------------------------------
+#
+# Three refusals remain reachable from catalog-only vocabulary. Each is a property of the
+# *request*, not of the model, so no per-metric field could express it — and each 422 names
+# its own repair. Asserted here so the boundary is recorded rather than assumed.
+
+
+def test_bucketing_a_date_and_grouping_by_it_is_still_refused(registry: Any) -> None:
+    # `lead_date` is legitimately groupable; it just cannot also be the thing being bucketed.
+    with pytest.raises(DateGroupByError):
+        compile_query(
+            QueryIntent(metric="new_leads", grain=Grain.WEEK, group_by=["lead_date"]), registry
+        )
+
+
+def test_compare_and_accumulate_together_are_still_refused(registry: Any) -> None:
+    with pytest.raises(CompareWithAccumulateError):
+        compile_query(
+            QueryIntent(
+                metric="new_leads",
+                grain=Grain.WEEK,
+                compare=Comparison(),
+                accumulate=Accumulation(reset=Grain.YEAR),
+            ),
+            registry,
+        )
+
+
+def test_a_running_total_starting_mid_period_is_still_refused(registry: Any) -> None:
+    with pytest.raises(PartialAccumulationError):
+        compile_query(
+            QueryIntent(
+                metric="new_leads",
+                grain=Grain.MONTH,
+                accumulate=Accumulation(reset=Grain.YEAR),
+                date_range=DateRange(start=date(2026, 6, 1)),
+            ),
+            registry,
+        )

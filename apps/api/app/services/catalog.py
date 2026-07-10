@@ -10,6 +10,7 @@ metrics over 14 dimensions, which is not worth a cache until something says othe
 
 from app.query.time import Grain, RelativeRange, nesting_grains
 from app.schemas.catalog import (
+    AccumulationRule,
     CatalogDimension,
     CatalogMetric,
     CatalogResponse,
@@ -58,7 +59,8 @@ def build_catalog(registry: SemanticRegistry) -> CatalogResponse:
         ],
         grains=list(Grain),
         relative_ranges=list(RelativeRange),
-        accumulation_resets={
-            grain: [Grain(value) for value in nesting_grains(grain)] for grain in Grain
-        },
+        accumulation_resets=[
+            AccumulationRule(grain=grain, resets=[Grain(value) for value in nesting_grains(grain)])
+            for grain in Grain
+        ],
     )

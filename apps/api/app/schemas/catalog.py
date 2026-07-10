@@ -8,6 +8,11 @@ questions and reading the errors.
 This is that bound, made readable. The planner (E2) draws intents from it instead of inventing
 names; the dashboard's controls (D6) populate themselves from it instead of hardcoding a list
 that silently rots when a metric moves entity.
+
+It bounds the *vocabulary*, not the shape of a request. Three refusals remain reachable from
+catalog-only names, because each is a property of the question rather than of the model:
+combining `compare` with `accumulate`, grouping by the very date `grain` is bucketing, and
+starting a running total mid-period. Each 422 names its own repair.
 """
 
 from pydantic import BaseModel, Field
@@ -40,9 +45,10 @@ class CatalogMetric(BaseModel):
     synonyms: list[str] = Field(description="Natural-language aliases that resolve to it.")
     groupable_dimensions: list[str] = Field(
         description=(
-            "Every dimension this metric may be grouped or filtered by. The others are not "
-            "missing — they would fan out, are unrelated, or are pinned by the metric's own "
-            "filter."
+            "Every dimension this metric may be grouped or filtered by — one rule governs "
+            "both. The others are not missing: they would fan out, are unrelated, or are "
+            "pinned by the metric's own filter. A date dimension listed here may be grouped "
+            "by, but not while `grain` is bucketing that same date."
         )
     )
     date_dimensions: list[str] = Field(
@@ -64,6 +70,17 @@ class CatalogDimension(BaseModel):
     synonyms: list[str] = Field(description="Natural-language aliases that resolve to it.")
 
 
+class AccumulationRule(BaseModel):
+    """Which periods a running total may reset on, for one bucket grain.
+
+    A calendar fact, not an ordering: a week straddles a month boundary, so weekly buckets
+    cannot reset monthly. `resets` is empty when nothing is coarser.
+    """
+
+    grain: Grain = Field(description="The bucket grain the intent asks for.")
+    resets: list[Grain] = Field(description="Periods a running total over that grain may reset on.")
+
+
 class CatalogResponse(BaseModel):
     metrics: list[CatalogMetric] = Field(description="Every metric, and what it can be asked.")
     dimensions: list[CatalogDimension] = Field(description="Every dimension in the model.")
@@ -71,10 +88,9 @@ class CatalogResponse(BaseModel):
     relative_ranges: list[RelativeRange] = Field(
         description="Windows named relative to today, resolved server-side against one date."
     )
-    accumulation_resets: dict[Grain, list[Grain]] = Field(
-        description=(
-            "Per bucket grain, the periods a running total may reset on. A calendar fact, not "
-            "an ordering: a week straddles a month boundary, so weekly buckets cannot reset "
-            "monthly."
-        )
+    # A list rather than a map keyed by Grain: OpenAPI cannot close the key set of an object,
+    # so a dict reaches TypeScript as `{[key: string]: Grain[]}` and a typo in the grain goes
+    # unchecked. As a list, both sides of the rule are typed.
+    accumulation_resets: list[AccumulationRule] = Field(
+        description="Per bucket grain, the periods a running total may reset on."
     )

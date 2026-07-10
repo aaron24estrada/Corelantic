@@ -22,11 +22,14 @@ def test_the_catalog_says_what_each_metric_admits(client: TestClient) -> None:
 
 
 def test_the_catalog_publishes_the_calendar_nesting_rule(client: TestClient) -> None:
-    resets = client.get("/api/v1/catalog").json()["accumulation_resets"]
+    rules = {
+        rule["grain"]: rule["resets"]
+        for rule in client.get("/api/v1/catalog").json()["accumulation_resets"]
+    }
 
     # A week straddles a month boundary, so weekly buckets cannot reset monthly.
-    assert resets["week"] == ["year"]
-    assert "month" in resets["day"]
+    assert rules["week"] == ["year"]
+    assert "month" in rules["day"]
 
 
 def test_the_metrics_route_is_gone(client: TestClient) -> None:

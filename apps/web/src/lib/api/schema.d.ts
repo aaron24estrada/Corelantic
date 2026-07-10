@@ -100,6 +100,22 @@ export interface components {
             /** @description The period the running total restarts within. */
             reset: components["schemas"]["Grain"];
         };
+        /**
+         * AccumulationRule
+         * @description Which periods a running total may reset on, for one bucket grain.
+         *
+         *     A calendar fact, not an ordering: a week straddles a month boundary, so weekly buckets
+         *     cannot reset monthly. `resets` is empty when nothing is coarser.
+         */
+        AccumulationRule: {
+            /** @description The bucket grain the intent asks for. */
+            grain: components["schemas"]["Grain"];
+            /**
+             * Resets
+             * @description Periods a running total over that grain may reset on.
+             */
+            resets: components["schemas"]["Grain"][];
+        };
         /** AskRequest */
         AskRequest: {
             /**
@@ -167,7 +183,7 @@ export interface components {
             format: components["schemas"]["MetricFormat"];
             /**
              * Groupable Dimensions
-             * @description Every dimension this metric may be grouped or filtered by. The others are not missing — they would fan out, are unrelated, or are pinned by the metric's own filter.
+             * @description Every dimension this metric may be grouped or filtered by — one rule governs both. The others are not missing: they would fan out, are unrelated, or are pinned by the metric's own filter. A date dimension listed here may be grouped by, but not while `grain` is bucketing that same date.
              */
             groupable_dimensions: string[];
             /**
@@ -194,11 +210,9 @@ export interface components {
         CatalogResponse: {
             /**
              * Accumulation Resets
-             * @description Per bucket grain, the periods a running total may reset on. A calendar fact, not an ordering: a week straddles a month boundary, so weekly buckets cannot reset monthly.
+             * @description Per bucket grain, the periods a running total may reset on.
              */
-            accumulation_resets: {
-                [key: string]: components["schemas"]["Grain"][];
-            };
+            accumulation_resets: components["schemas"]["AccumulationRule"][];
             /**
              * Dimensions
              * @description Every dimension in the model.
