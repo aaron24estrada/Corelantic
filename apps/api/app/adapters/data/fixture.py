@@ -20,8 +20,8 @@ from sqlalchemy.engine import Engine
 from sqlalchemy.pool import StaticPool
 
 import app.adapters.data.sqlite  # noqa: F401 — registers the DateBucket SQLite rendering
-from app.adapters.data.base import Row
 from app.adapters.data.seed import SCHEMA, build_rows
+from app.query.rows import Row
 
 _SCHEMA_NAME = "gold_tspot"
 

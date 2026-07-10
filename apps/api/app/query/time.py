@@ -56,6 +56,25 @@ def nesting_grains(inner: Grain) -> list[str]:
     return sorted(grain.value for grain in _NESTS_IN[inner])
 
 
+def period_start(day: date, grain: Grain) -> date:
+    """The first day of the ``grain`` period containing ``day``.
+
+    Mirrors ``DateBucket``: both dialect renderings truncate a week to its Monday, so this
+    does too. Used to tell whether a date range begins on a period boundary — a running total
+    that starts mid-period is not the total it claims to be.
+    """
+
+    if grain is Grain.DAY:
+        return day
+    if grain is Grain.WEEK:
+        return day - timedelta(days=day.weekday())
+    if grain is Grain.MONTH:
+        return day.replace(day=1)
+    if grain is Grain.QUARTER:
+        return day.replace(month=(day.month - 1) // 3 * 3 + 1, day=1)
+    return day.replace(month=1, day=1)  # Grain.YEAR
+
+
 class DateBucket(ColumnElement[Any]):
     """Truncate a date expression to the start of its ``grain`` period.
 

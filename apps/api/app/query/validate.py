@@ -19,14 +19,24 @@ from app.query.errors import (
     AccumulationResetError,
     CompareWithAccumulateError,
     DateDimensionError,
+    DateGroupByError,
     DimensionNotDefinedError,
     GrainRequiredError,
     IncompatibleDimensionError,
     MetricNotDefinedError,
     NotAdditiveError,
+    PartialAccumulationError,
 )
 from app.query.intent import Comparison, QueryIntent
-from app.query.time import DateRange, Grain, RelativeRange, nesting_grains, nests_in, resolve_range
+from app.query.time import (
+    DateRange,
+    Grain,
+    RelativeRange,
+    nesting_grains,
+    nests_in,
+    period_start,
+    resolve_range,
+)
 from app.semantic.capability import (
     DimensionRejection,
     date_dimensions,
@@ -77,6 +87,9 @@ def validate_intent(
 
     date_dimension = _resolve_date_dimension(intent, registry)
     date_range = _resolve_date_range(intent.date_range, today)
+    _check_date_group_by(intent, date_dimension, groupable)
+    # Needs the resolved window: "last 90 days" only becomes a partial year once it has dates.
+    _check_whole_reset_periods(intent, date_range)
     canonical = intent.model_copy(
         update={
             "date_range": date_range,
@@ -131,6 +144,39 @@ def _check_time_modifiers(intent: QueryIntent, metric: Metric, registry: Semanti
     if not nests_in(intent.grain, reset):
         raise AccumulationResetError(
             intent.grain.value, reset.value, allowed=nesting_grains(intent.grain)
+        )
+
+
+def _check_date_group_by(
+    intent: QueryIntent, date_dimension: Dimension | None, groupable: list[str]
+) -> None:
+    """Bucketing a date and grouping by that same raw date asks two things at once."""
+
+    if intent.grain is None or date_dimension is None:
+        return
+    if date_dimension.name in intent.group_by:
+        raise DateGroupByError(
+            date_dimension.name,
+            intent.grain.value,
+            allowed=[name for name in groupable if name != date_dimension.name],
+        )
+
+
+def _check_whole_reset_periods(intent: QueryIntent, date_range: DateRange | None) -> None:
+    """A running total must start where its reset period starts, or it is not that total.
+
+    Filtering to "from June" and asking for a year-to-date returns a June-to-date wearing the
+    same label. The rows look identical to the honest ones, so the number would be believed.
+    """
+
+    if intent.accumulate is None or date_range is None or date_range.start is None:
+        return
+    boundary = period_start(date_range.start, intent.accumulate.reset)
+    if boundary != date_range.start:
+        raise PartialAccumulationError(
+            date_range.start.isoformat(),
+            intent.accumulate.reset.value,
+            boundary.isoformat(),
         )
 
 

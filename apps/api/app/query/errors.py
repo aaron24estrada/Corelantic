@@ -22,6 +22,8 @@ class IntentErrorCode(StrEnum):
     GRAIN_REQUIRED = "grain_required"
     NOT_ADDITIVE = "not_additive"
     ACCUMULATION_RESET = "accumulation_reset"
+    PARTIAL_ACCUMULATION = "partial_accumulation"
+    DATE_GROUP_BY = "date_group_by"
     COMPARE_WITH_ACCUMULATE = "compare_with_accumulate"
 
 
@@ -140,6 +142,45 @@ class AccumulationResetError(IntentError):
         )
         self.grain = grain
         self.reset = reset
+
+
+class PartialAccumulationError(IntentError):
+    """A running total whose window starts after its reset period began.
+
+    "Revenue year-to-date, for the last 90 days" reads as a year-to-date and is not one: the
+    total starts at the range's first day, not January. The rows would be labelled exactly as
+    the honest ones are, so refuse rather than answer a different question quietly.
+    """
+
+    code: ClassVar[IntentErrorCode] = IntentErrorCode.PARTIAL_ACCUMULATION
+
+    def __init__(self, start: str, reset: str, boundary: str) -> None:
+        super().__init__(
+            f"A {reset}ly running total cannot start on {start}: the {reset} began on "
+            f"{boundary}, so the first total would not be a {reset}-to-date.",
+            field="date_range",
+            allowed=[boundary],
+        )
+        self.boundary = boundary
+
+
+class DateGroupByError(IntentError):
+    """Bucketing a date and also grouping by that same raw date.
+
+    "Monthly, by lead date" groups by month *and* by individual day, so each row is a single
+    day wearing a month's label. One of the two is what the caller meant.
+    """
+
+    code: ClassVar[IntentErrorCode] = IntentErrorCode.DATE_GROUP_BY
+
+    def __init__(self, dimension: str, grain: str, allowed: list[str]) -> None:
+        super().__init__(
+            f"Cannot group by {dimension!r} while bucketing it by {grain}: drop the grain to "
+            f"see raw dates, or drop the dimension to see one row per {grain}.",
+            field="group_by",
+            allowed=allowed,
+        )
+        self.dimension = dimension
 
 
 class CompareWithAccumulateError(IntentError):

@@ -10,6 +10,7 @@ from app.query.time import (
     RelativeRange,
     nesting_grains,
     nests_in,
+    period_start,
     resolve_range,
 )
 
@@ -78,3 +79,17 @@ def test_nothing_nests_in_itself() -> None:
 def test_date_range_rejects_start_after_end() -> None:
     with pytest.raises(ValueError):
         DateRange(start=date(2026, 6, 1), end=date(2026, 1, 1))
+
+
+@pytest.mark.parametrize(
+    ("grain", "expected"),
+    [
+        (Grain.DAY, date(2023, 6, 15)),
+        (Grain.WEEK, date(2023, 6, 12)),  # the Monday, as DateBucket truncates
+        (Grain.MONTH, date(2023, 6, 1)),
+        (Grain.QUARTER, date(2023, 4, 1)),
+        (Grain.YEAR, date(2023, 1, 1)),
+    ],
+)
+def test_period_start_matches_how_date_bucket_truncates(grain: Grain, expected: date) -> None:
+    assert period_start(date(2023, 6, 15), grain) == expected

@@ -27,7 +27,7 @@ from app.semantic.errors import (
     NonAdditiveMetricError,
     ReservedNameError,
 )
-from app.semantic.formula import formula_names, validate_formula
+from app.semantic.formula import formula_is_linear, formula_names, validate_formula
 from app.semantic.models import (
     METRIC_ADAPTER,
     Aggregation,
@@ -143,7 +143,7 @@ def _check_additive(metric: Metric, registry: SemanticRegistry) -> None:
 
     Inference (app/semantic/capability.is_additive) already answers this for simple metrics.
     The declaration exists for a derived metric linear in its measures — revenue is vouchers
-    times a fee — so the only thing left to police is a declaration that contradicts arithmetic.
+    times a fee — so what is left to police is a declaration that contradicts arithmetic.
     """
 
     if metric.additive is not True:
@@ -156,6 +156,16 @@ def _check_additive(metric: Metric, registry: SemanticRegistry) -> None:
             raise NonAdditiveMetricError(
                 metric.name, f"its measure aggregates with {aggregation.value}, which does not sum"
             )
+    if isinstance(metric, DerivedMetric) and not formula_is_linear(
+        metric.expression, set(metric.measures)
+    ):
+        # The Python class is not the question. `(revenue - spend) / revenue` is a ratio
+        # spelled as a derived metric, and summing its periods would not sum the metric.
+        raise NonAdditiveMetricError(
+            metric.name,
+            f"its formula {metric.expression!r} is not linear in its measures, so the sum of "
+            "its periods is not the metric of the summed periods",
+        )
 
 
 def validate_registry(
@@ -178,6 +188,11 @@ def validate_registry(
     for name in sorted(set(registry.constants) & set(registry.measures)):
         raise DuplicateNameError("constant shadowing a measure,", name)
 
+    # A result row is keyed by name. Grouping a metric by a dimension of the same name would
+    # select two columns called the same thing, and which one survived would depend on order.
+    for name in sorted(set(registry.metrics) & set(registry.dimensions)):
+        raise DuplicateNameError("metric shadowing a dimension,", name)
+
     for entity in registry.entities.values():
         if allowed_schemas is not None:
             schema, sep, table_name = entity.source.rpartition(".")
@@ -198,6 +213,8 @@ def validate_registry(
     for metric in registry.metrics.values():
         # Resolves every component measure and confirms they share one entity.
         resolve_metric_entity(metric, registry)
+        if metric.name in RESERVED_COLUMN_NAMES:
+            raise ReservedNameError("metric", metric.name)
         _check_additive(metric, registry)
         if isinstance(metric, DerivedMetric):
             # A formula may reference only its declared measures and the registry's constants;

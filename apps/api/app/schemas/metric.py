@@ -12,10 +12,3 @@ class MetricSummary(BaseModel):
 
 class MetricListResponse(BaseModel):
     metrics: list[MetricSummary] = Field(description="Metrics defined in the semantic registry.")
-
-
-class MetricResultResponse(BaseModel):
-    name: str = Field(description="The metric that was computed.")
-    rows: list[dict[str, object]] = Field(
-        description="Result rows; grouped dimensions and the metric value per row."
-    )

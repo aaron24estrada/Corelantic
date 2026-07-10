@@ -8,7 +8,7 @@ an empty chart still draws its axes.
 Pure: no database, no FastAPI. Tested against the compiler's output so the two cannot drift.
 """
 
-from app.adapters.data.base import Row
+from app.query.rows import Row
 from app.query.validate import ResolvedIntent
 from app.schemas.query import Column, ColumnRole, ResultSet
 from app.semantic.models import MetricFormat, SemanticRegistry

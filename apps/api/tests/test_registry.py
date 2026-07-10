@@ -397,3 +397,56 @@ def test_a_dimension_may_not_take_a_column_name_the_compiler_emits() -> None:
     )
     with pytest.raises(ReservedNameError):
         validate_registry(registry)
+
+
+def test_a_derived_metric_that_is_really_a_ratio_may_not_declare_itself_additive() -> None:
+    # The Python class is not the question: `(rev - spend) / rev` is a ratio spelled as a
+    # derived metric, and summing its periods would not sum the metric.
+    registry = _leads_registry(
+        margin=DerivedMetric(
+            name="margin",
+            label="x",
+            description="x",
+            measures=["spend_total", "lead_count"],
+            expression="(spend_total - lead_count) / spend_total",
+            additive=True,
+        )
+    )
+    with pytest.raises(NonAdditiveMetricError):
+        validate_registry(registry)
+
+
+def test_a_linear_derived_metric_may_declare_itself_additive() -> None:
+    # revenue = vouchers x a fee. A year's revenue is the sum of its weeks.
+    registry = _leads_registry(
+        revenue=DerivedMetric(
+            name="revenue",
+            label="x",
+            description="x",
+            measures=["lead_count"],
+            expression="lead_count * 6000",
+            additive=True,
+        )
+    )
+    assert validate_registry(registry) is registry
+
+
+def test_a_metric_may_not_take_a_column_name_the_compiler_emits() -> None:
+    # A windowed query selects `value AS <metric>`, `previous` and `delta`.
+    registry = _leads_registry(
+        previous=SimpleMetric(name="previous", label="x", description="x", measure="lead_count")
+    )
+    with pytest.raises(ReservedNameError):
+        validate_registry(registry)
+
+
+def test_a_metric_may_not_shadow_a_dimension() -> None:
+    # Grouping metric `channel` by dimension `channel` would select two columns of that name.
+    registry = _leads_registry(
+        channel=SimpleMetric(name="channel", label="x", description="x", measure="lead_count")
+    )
+    registry.dimensions["channel"] = Dimension(
+        name="channel", label="Channel", entity="leads", column="src"
+    )
+    with pytest.raises(DuplicateNameError):
+        validate_registry(registry)

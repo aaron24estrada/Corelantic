@@ -16,8 +16,8 @@ from sqlalchemy import Select, create_engine, event
 from sqlalchemy.engine import URL, Engine
 
 import app.adapters.data.mssql  # noqa: F401 — registers the DateBucket mssql rendering
-from app.adapters.data.base import Row
 from app.core.config import Settings
+from app.query.rows import Row
 
 # ODBC attribute for an AAD access token, and the SQL scope it must be issued for.
 _SQL_COPT_SS_ACCESS_TOKEN = 1256

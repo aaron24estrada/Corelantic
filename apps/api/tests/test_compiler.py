@@ -7,9 +7,11 @@ from sqlalchemy import Select
 from app.query.compiler import compile_query
 from app.query.errors import (
     DateDimensionError,
+    DateGroupByError,
     DimensionNotDefinedError,
     IncompatibleDimensionError,
     MetricNotDefinedError,
+    PartialAccumulationError,
 )
 from app.query.intent import Accumulation, Comparison, QueryIntent
 from app.query.time import DateRange, Grain
@@ -559,3 +561,36 @@ def test_unknown_dimension_raises() -> None:
 def test_metric_mixing_entities_raises() -> None:
     with pytest.raises(MixedEntityError):
         compile_query(QueryIntent(metric="leads_per_case"), _registry())
+
+
+def test_a_running_total_may_not_start_mid_period() -> None:
+    # "Year-to-date, from June" returns a June-to-date wearing the same label. The rows would
+    # look exactly like the honest ones, so the number would be believed.
+    intent = QueryIntent(
+        metric="spend",
+        grain=Grain.MONTH,
+        accumulate=Accumulation(reset=Grain.YEAR),
+        date_range=DateRange(start=date(2026, 6, 1), end=date(2026, 12, 31)),
+    )
+    with pytest.raises(PartialAccumulationError) as caught:
+        compile_query(intent, _registry())
+    assert caught.value.allowed == ["2026-01-01"]
+
+
+def test_a_running_total_starting_on_the_boundary_is_fine() -> None:
+    intent = QueryIntent(
+        metric="spend",
+        grain=Grain.MONTH,
+        accumulate=Accumulation(reset=Grain.YEAR),
+        date_range=DateRange(start=date(2026, 1, 1), end=date(2026, 12, 31)),
+    )
+    assert compile_query(intent, _registry()) is not None
+
+
+def test_bucketing_a_date_and_grouping_by_it_is_rejected() -> None:
+    # "Monthly, by lead date" would group by month *and* by day: one row per day, labelled
+    # with its month. One of the two is what the caller meant.
+    intent = QueryIntent(metric="new_leads", grain=Grain.MONTH, group_by=["lead_date"])
+    with pytest.raises(DateGroupByError) as caught:
+        compile_query(intent, _registry())
+    assert "lead_date" not in caught.value.allowed

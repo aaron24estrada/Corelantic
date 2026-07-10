@@ -1,10 +1,10 @@
 """Errors raised when the semantic registry cannot resolve or define its vocabulary.
 
-Metric and dimension lookups fail when an *intent* names vocabulary we do not define —
-a client error that maps to a 404 at the HTTP boundary, never a guess. Entity and
-measure lookups back the internal references between the types, and a metric whose
-component measures span entities is a definition error; both are caught at load by
-``validate_registry`` (authoring errors, not request errors).
+These are *our* mistakes, not a caller's. An intent naming vocabulary we do not define is
+caught first by ``app/query/validate.py`` and answered with a 422 that lists what would have
+worked; a SemanticError reaching the HTTP boundary means the registry disagrees with itself,
+so it maps to a 500 and tells the client nothing. Most are caught at load by
+``validate_registry`` and never reach a request at all.
 """
 
 

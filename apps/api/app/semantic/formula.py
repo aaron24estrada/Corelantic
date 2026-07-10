@@ -41,6 +41,42 @@ def formula_names(expression: str) -> set[str]:
     return {node.id for node in ast.walk(tree) if isinstance(node, ast.Name)}
 
 
+def formula_is_linear(expression: str, measures: set[str]) -> bool:
+    """Whether the formula is degree ≤ 1 in ``measures``, treating every other name as constant.
+
+    This is what decides whether a derived metric may be accumulated: summing a period's values
+    equals the value of the summed periods only when the formula is linear. ``vouchers * fee``
+    is; ``(revenue - spend) / revenue`` is not, because dividing by a measure is not a
+    polynomial in it at all. Call only on an expression ``validate_formula`` has passed.
+    """
+
+    degree = _degree(ast.parse(expression, mode="eval").body, measures)
+    return degree is not None and degree <= 1
+
+
+def _degree(node: ast.expr, measures: set[str]) -> int | None:
+    """The polynomial degree of ``node`` in ``measures``; None when it is not a polynomial."""
+
+    if isinstance(node, ast.Name):
+        return 1 if node.id in measures else 0
+    if isinstance(node, ast.Constant):
+        return 0
+    if isinstance(node, ast.UnaryOp):
+        return _degree(node.operand, measures)
+    if isinstance(node, ast.BinOp):
+        left = _degree(node.left, measures)
+        right = _degree(node.right, measures)
+        if left is None or right is None:
+            return None
+        if isinstance(node.op, (ast.Add, ast.Sub)):
+            return max(left, right)
+        if isinstance(node.op, ast.Mult):
+            return left + right
+        # Division: only by something free of measures keeps it a polynomial.
+        return None if right > 0 else left
+    raise AssertionError(f"unvalidated node reached _degree: {type(node).__name__}")
+
+
 def _check(node: ast.expr, expression: str, allowed: set[str]) -> None:
     if isinstance(node, ast.Name):
         if node.id not in allowed:

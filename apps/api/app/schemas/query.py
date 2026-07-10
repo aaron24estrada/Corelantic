@@ -11,8 +11,8 @@ from enum import StrEnum
 
 from pydantic import BaseModel, Field
 
-from app.adapters.data.base import CellValue
 from app.query.intent import QueryIntent
+from app.query.rows import CellValue
 from app.semantic.models import MetricFormat
 
 

@@ -8,8 +8,8 @@ pending a key) live beside this module and are selected by the factory.
 
 from typing import Protocol
 
-from app.adapters.data.base import Row
 from app.query.intent import QueryIntent
+from app.query.rows import Row
 from app.semantic.models import SemanticRegistry
 
 
