@@ -4,6 +4,29 @@
  */
 
 export interface paths {
+    "/api/v1/catalog": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Catalog
+         * @description The vocabulary an intent may draw on, and what each metric admits.
+         *
+         *     Read this before composing an intent: it is the difference between a planner that asks a
+         *     valid question and one that guesses, then reads a 422 to find out.
+         */
+        get: operations["catalog-get_catalog"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/health": {
         parameters: {
             query?: never;
@@ -13,23 +36,6 @@ export interface paths {
         };
         /** Health */
         get: operations["health-health"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/metrics": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** List Metrics */
-        get: operations["metrics-list_metrics"];
         put?: never;
         post?: never;
         delete?: never;
@@ -94,6 +100,22 @@ export interface components {
             /** @description The period the running total restarts within. */
             reset: components["schemas"]["Grain"];
         };
+        /**
+         * AccumulationRule
+         * @description Which periods a running total may reset on, for one bucket grain.
+         *
+         *     A calendar fact, not an ordering: a week straddles a month boundary, so weekly buckets
+         *     cannot reset monthly. `resets` is empty when nothing is coarser.
+         */
+        AccumulationRule: {
+            /** @description The bucket grain the intent asks for. */
+            grain: components["schemas"]["Grain"];
+            /**
+             * Resets
+             * @description Periods a running total over that grain may reset on.
+             */
+            resets: components["schemas"]["Grain"][];
+        };
         /** AskRequest */
         AskRequest: {
             /**
@@ -116,6 +138,101 @@ export interface components {
             question: string;
             /** @description Rows, their column schema, and the intent the model actually ran. */
             result: components["schemas"]["ResultSet"];
+        };
+        /** CatalogDimension */
+        CatalogDimension: {
+            /**
+             * Date Role
+             * @description Set when this is a date, naming its role (lead, referral).
+             */
+            date_role?: string | null;
+            /**
+             * Label
+             * @description Human-readable label for display.
+             */
+            label: string;
+            /**
+             * Members
+             * @description Known values, when the set is closed. Else empty.
+             */
+            members: string[];
+            /**
+             * Name
+             * @description Stable identifier; what an intent names.
+             */
+            name: string;
+            /**
+             * Synonyms
+             * @description Natural-language aliases that resolve to it.
+             */
+            synonyms: string[];
+        };
+        /** CatalogMetric */
+        CatalogMetric: {
+            /**
+             * Date Dimensions
+             * @description The dates a time question about this metric may anchor on. More than one means an intent must name which; we never guess between date roles.
+             */
+            date_dimensions: string[];
+            /**
+             * Description
+             * @description What the metric means, in business terms.
+             */
+            description: string;
+            /** @description How the value is formatted for display. */
+            format: components["schemas"]["MetricFormat"];
+            /**
+             * Groupable Dimensions
+             * @description Every dimension this metric may be grouped or filtered by — one rule governs both. The others are not missing: they would fan out, are unrelated, or are pinned by the metric's own filter. A date dimension listed here may be grouped by, but not while `grain` is bucketing that same date.
+             */
+            groupable_dimensions: string[];
+            /**
+             * Label
+             * @description Human-readable label for display.
+             */
+            label: string;
+            /**
+             * Name
+             * @description Stable identifier; what an intent names.
+             */
+            name: string;
+            /** @description Which time modifiers this metric admits. */
+            supports: components["schemas"]["MetricCapabilities"];
+            /**
+             * Synonyms
+             * @description Natural-language aliases that resolve to it.
+             */
+            synonyms: string[];
+            /** @description How the value is composed: simple, ratio or derived. */
+            type: components["schemas"]["MetricType"];
+        };
+        /** CatalogResponse */
+        CatalogResponse: {
+            /**
+             * Accumulation Resets
+             * @description Per bucket grain, the periods a running total may reset on.
+             */
+            accumulation_resets: components["schemas"]["AccumulationRule"][];
+            /**
+             * Dimensions
+             * @description Every dimension in the model.
+             */
+            dimensions: components["schemas"]["CatalogDimension"][];
+            /**
+             * Grains
+             * @description Bucket sizes an intent may request.
+             */
+            grains: components["schemas"]["Grain"][];
+            /**
+             * Metrics
+             * @description Every metric, and what it can be asked.
+             */
+            metrics: components["schemas"]["CatalogMetric"][];
+            /**
+             * Relative Ranges
+             * @description Windows named relative to today, resolved server-side against one date.
+             */
+            relative_ranges: components["schemas"]["RelativeRange"][];
         };
         /** Column */
         Column: {
@@ -190,39 +307,29 @@ export interface components {
              */
             status: "ok";
         };
+        /** MetricCapabilities */
+        MetricCapabilities: {
+            /**
+             * Accumulate
+             * @description Whether a running total is meaningful — true only when the metric's values sum across periods. A rate's do not.
+             */
+            accumulate: boolean;
+            /**
+             * Compare
+             * @description Whether each bucket may be measured against the one before it. Needs a grain, which needs a date dimension this metric can reach.
+             */
+            compare: boolean;
+        };
         /**
          * MetricFormat
          * @enum {string}
          */
         MetricFormat: "number" | "currency" | "percent" | "percent_point";
-        /** MetricListResponse */
-        MetricListResponse: {
-            /**
-             * Metrics
-             * @description Metrics defined in the semantic registry.
-             */
-            metrics: components["schemas"]["MetricSummary"][];
-        };
-        /** MetricSummary */
-        MetricSummary: {
-            /**
-             * Description
-             * @description What the metric means, in business terms.
-             */
-            description: string;
-            /** @description How the value is formatted for display. */
-            format: components["schemas"]["MetricFormat"];
-            /**
-             * Label
-             * @description Human-readable label for display.
-             */
-            label: string;
-            /**
-             * Name
-             * @description Stable identifier for the metric.
-             */
-            name: string;
-        };
+        /**
+         * MetricType
+         * @enum {string}
+         */
+        MetricType: "simple" | "ratio" | "derived";
         /** QueryIntent */
         QueryIntent: {
             /** @description Run a total that resets each period. Requires a grain. */
@@ -308,27 +415,7 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
-    "health-health": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HealthResponse"];
-                };
-            };
-        };
-    };
-    "metrics-list_metrics": {
+    "catalog-get_catalog": {
         parameters: {
             query?: never;
             header?: {
@@ -345,7 +432,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["MetricListResponse"];
+                    "application/json": components["schemas"]["CatalogResponse"];
                 };
             };
             /** @description Validation Error */
@@ -355,6 +442,26 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    "health-health": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HealthResponse"];
                 };
             };
         };

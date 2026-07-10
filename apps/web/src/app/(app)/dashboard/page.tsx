@@ -1,17 +1,32 @@
 import {
   Card,
+  CardContent,
   CardDescription,
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import type { components } from "@/lib/api/schema";
 import { apiServer } from "@/lib/api/server";
+
+type CatalogMetric = components["schemas"]["CatalogMetric"];
 
 // Fetched per request from the private API (server-to-server), so it is never
 // statically prerendered at build time.
 export const dynamic = "force-dynamic";
 
+// What each metric can be asked, in the order a reader cares about it. The catalog computes
+// this from the same rules the query engine enforces, so a chip here is a promise the API keeps.
+function capabilities(metric: CatalogMetric): string[] {
+  const count = metric.groupable_dimensions.length;
+  return [
+    `${count} ${count === 1 ? "dimension" : "dimensions"}`,
+    ...(metric.supports.compare ? ["compare"] : []),
+    ...(metric.supports.accumulate ? ["running total"] : []),
+  ];
+}
+
 export default async function DashboardPage() {
-  const { data, error } = await apiServer.GET("/api/v1/metrics");
+  const { data, error } = await apiServer.GET("/api/v1/catalog");
 
   return (
     <div className="flex flex-col gap-8">
@@ -54,6 +69,18 @@ export default async function DashboardPage() {
                   <CardTitle>{metric.label}</CardTitle>
                   <CardDescription>{metric.description}</CardDescription>
                 </CardHeader>
+                <CardContent>
+                  <ul className="flex flex-wrap gap-1.5">
+                    {capabilities(metric).map((capability) => (
+                      <li
+                        key={capability}
+                        className="bg-muted text-muted-foreground rounded-full px-2 py-0.5 text-xs font-medium"
+                      >
+                        {capability}
+                      </li>
+                    ))}
+                  </ul>
+                </CardContent>
               </Card>
             </li>
           ))}

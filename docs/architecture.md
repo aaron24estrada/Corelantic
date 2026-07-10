@@ -22,7 +22,7 @@
         ┌────────────────────────────────────────────────────────┐
         │  API — FastAPI (async, uv)                              │
         │                                                        │
-        │  routes ── dashboard/metrics ──┐                        │
+        │  routes ── catalog · query ────┐                        │
         │        └── nlq/ask ────────────┤                        │
         │                                ▼                        │
         │   services/                 orchestrator (agent)        │
@@ -41,15 +41,18 @@
 
 ### 1. Dashboard (deterministic)
 
-The dashboard is **not** agent-composed in this cut. Each of the nine visuals maps to a named metric in the semantic layer. The frontend requests a metric with parameters (time grain, active cross-filters); the API compiles it to parameterized SQL, runs it read-only, and returns a chart-ready payload.
+The dashboard is **not** agent-composed in this cut. Each of the nine visuals maps to a named metric in the semantic layer. The frontend posts a structured intent — the same shape the agent plans — and the API validates it against the registry, compiles it to parameterized SQL, runs it read-only, and returns rows with the schema that describes them.
 
 ```
-UI visual ──GET /metrics/{name}?grain=week&channel=Facebook──▶ API
-   API: semantic layer → SQL compiler → Azure SQL (read-only) → rows
-   API: rows → ECharts spec / KPI value ──▶ UI renders
+UI visual ──POST /query {metric, grain, filters, compare}──▶ API
+   API: validate against registry → SQL compiler → Azure SQL (read-only) → rows
+   API: rows + column schema + the intent as run ──▶ UI renders
 ```
 
-Cross-filtering and time-grain are just query parameters — no new visual types, no LLM.
+`GET /catalog` publishes what may be asked of each metric — its groupable dimensions, the dates
+it can anchor on, and whether it admits `compare` or `accumulate` — so the controls populate
+themselves rather than hardcoding a list. Cross-filtering and time-grain are fields of the
+intent; no new visual types, no LLM.
 
 ### 2. NL analytics (agentic)
 

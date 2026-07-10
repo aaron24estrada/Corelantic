@@ -170,7 +170,7 @@ api: "7 · API + BFF" {
   class: layer
   style.fill: "#E7E8F2"
   style.stroke: "#B4B7D2"
-  routes: "FastAPI /api/v1/metrics · /nlq/ask\ninternal-key auth · request-id logs" { class: code }
+  routes: "FastAPI /api/v1/catalog · /query · /nlq/ask\ninternal-key auth · request-id logs" { class: code }
   bff: "Next.js server client + /api/bff proxy\napps/web/src/lib/api" { class: code }
   routes -> bff
 }
