@@ -35,6 +35,14 @@ def registry() -> SemanticRegistry:
             "channel": Dimension(
                 name="channel", label="Channel", entity="cases", column="source_category"
             ),
+            # Real column on the seeded fixture, so a date-ranged intent actually runs.
+            "lead_date": Dimension(
+                name="lead_date",
+                label="Lead date",
+                entity="cases",
+                column="CreateDate",
+                date_role="lead",
+            ),
         },
     )
 

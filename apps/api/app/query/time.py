@@ -30,6 +30,51 @@ class Grain(StrEnum):
     YEAR = "year"
 
 
+# Which grains a running total may reset on, per bucket grain. This is a calendar fact, not
+# an ordering: a week straddles a month boundary, so "month-to-date over weekly buckets" has
+# no honest answer — the straddling week belongs to both. Weeks are admitted into years only
+# because DateBucket assigns a week to the year of its Monday, which is at least
+# deterministic. Days and months nest cleanly and carry the real cases (MTD, YTD).
+_NESTS_IN: dict[Grain, frozenset[Grain]] = {
+    Grain.DAY: frozenset({Grain.WEEK, Grain.MONTH, Grain.QUARTER, Grain.YEAR}),
+    Grain.WEEK: frozenset({Grain.YEAR}),
+    Grain.MONTH: frozenset({Grain.QUARTER, Grain.YEAR}),
+    Grain.QUARTER: frozenset({Grain.YEAR}),
+    Grain.YEAR: frozenset(),
+}
+
+
+def nests_in(inner: Grain, outer: Grain) -> bool:
+    """Whether every ``inner`` bucket falls wholly inside one ``outer`` period."""
+
+    return outer in _NESTS_IN[inner]
+
+
+def nesting_grains(inner: Grain) -> list[str]:
+    """The grains ``inner`` nests in, for an error message that names the options."""
+
+    return sorted(grain.value for grain in _NESTS_IN[inner])
+
+
+def period_start(day: date, grain: Grain) -> date:
+    """The first day of the ``grain`` period containing ``day``.
+
+    Mirrors ``DateBucket``: both dialect renderings truncate a week to its Monday, so this
+    does too. Used to tell whether a date range begins on a period boundary — a running total
+    that starts mid-period is not the total it claims to be.
+    """
+
+    if grain is Grain.DAY:
+        return day
+    if grain is Grain.WEEK:
+        return day - timedelta(days=day.weekday())
+    if grain is Grain.MONTH:
+        return day.replace(day=1)
+    if grain is Grain.QUARTER:
+        return day.replace(month=(day.month - 1) // 3 * 3 + 1, day=1)
+    return day.replace(month=1, day=1)  # Grain.YEAR
+
+
 class DateBucket(ColumnElement[Any]):
     """Truncate a date expression to the start of its ``grain`` period.
 
@@ -70,26 +115,42 @@ class DateRange(BaseModel):
         return self
 
 
+class RelativeRange(StrEnum):
+    """A date window named relative to today, resolved once at the API boundary.
+
+    A closed enum rather than a free string so it lands in the OpenAPI schema: the agent can
+    only pick a window we implement, and the dashboard does not reimplement "last 90 days"
+    in TypeScript and disagree with us about whether it is inclusive.
+    """
+
+    LAST_7_DAYS = "last_7_days"
+    LAST_30_DAYS = "last_30_days"
+    LAST_90_DAYS = "last_90_days"
+    LAST_365_DAYS = "last_365_days"
+    MONTH_TO_DATE = "month_to_date"
+    YEAR_TO_DATE = "year_to_date"
+
+
 _RELATIVE_DAYS = {
-    "last_7_days": 7,
-    "last_30_days": 30,
-    "last_90_days": 90,
-    "last_365_days": 365,
+    RelativeRange.LAST_7_DAYS: 7,
+    RelativeRange.LAST_30_DAYS: 30,
+    RelativeRange.LAST_90_DAYS: 90,
+    RelativeRange.LAST_365_DAYS: 365,
 }
 
 
-def resolve_range(spec: str, today: date) -> DateRange:
-    """Resolve a relative range spec against ``today`` into an explicit ``DateRange``.
+def resolve_range(spec: RelativeRange, today: date) -> DateRange:
+    """Resolve a relative range against ``today`` into an explicit, inclusive ``DateRange``.
 
-    Kept pure — the reference date is passed in, never read from the clock — so callers
-    (the service or agent) resolve "last 90 days" once and the compiler only ever sees
-    explicit, deterministic dates.
+    Kept pure — the reference date is passed in, never read from the clock — so the window is
+    fixed once, at the boundary, and the compiler only ever sees explicit dates. Two visuals
+    on one dashboard load therefore cover the same window even across midnight.
     """
 
     if spec in _RELATIVE_DAYS:
         return DateRange(start=today - timedelta(days=_RELATIVE_DAYS[spec] - 1), end=today)
-    if spec == "month_to_date":
+    if spec is RelativeRange.MONTH_TO_DATE:
         return DateRange(start=today.replace(day=1), end=today)
-    if spec == "year_to_date":
+    if spec is RelativeRange.YEAR_TO_DATE:
         return DateRange(start=today.replace(month=1, day=1), end=today)
-    raise ValueError(f"unknown relative range: {spec!r}")
+    raise AssertionError(f"unhandled relative range: {spec!r}")

@@ -18,8 +18,16 @@ from enum import StrEnum
 
 from app.semantic.errors import NoJoinPathError
 from app.semantic.joins import find_join_path
-from app.semantic.models import Dimension, Metric, SemanticRegistry
+from app.semantic.models import (
+    Aggregation,
+    Dimension,
+    Metric,
+    SemanticRegistry,
+    SimpleMetric,
+)
 from app.semantic.resolve import measure_names, resolve_metric_entity
+
+_ADDITIVE_AGGREGATIONS = frozenset({Aggregation.COUNT, Aggregation.SUM})
 
 
 class DimensionRejection(StrEnum):
@@ -79,6 +87,25 @@ def groupable_dimensions(metric: Metric, registry: SemanticRegistry) -> list[str
         for dimension in registry.dimensions.values()
         if rejection(metric, dimension, registry) is None
     )
+
+
+def is_additive(metric: Metric, registry: SemanticRegistry) -> bool:
+    """Whether the metric's bucket values may be summed across buckets.
+
+    A running total sums buckets, so only an additive metric can carry one. Counts and sums
+    are additive; averages and ratios are not — a year-to-date voucher *rate* would be the
+    sum of weekly rates, which is not a rate at all.
+
+    Inference covers every simple metric. A derived metric whose formula is linear in its
+    measures (revenue is vouchers times a fee) is additive too, but proving that from an
+    expression is more machinery than the one case earns, so the author declares it.
+    """
+
+    if metric.additive is not None:
+        return metric.additive
+    if not isinstance(metric, SimpleMetric):
+        return False
+    return registry.measure(metric.measure).agg in _ADDITIVE_AGGREGATIONS
 
 
 def date_dimensions(metric: Metric, registry: SemanticRegistry) -> list[str]:

@@ -1,6 +1,6 @@
 from pydantic import BaseModel, Field
 
-from app.query.intent import QueryIntent
+from app.schemas.query import ResultSet
 
 
 class AskRequest(BaseModel):
@@ -9,8 +9,9 @@ class AskRequest(BaseModel):
 
 class AskResponse(BaseModel):
     question: str = Field(description="The question that was asked.")
-    intent: QueryIntent = Field(description="The structured intent the model planned from it.")
-    rows: list[dict[str, object]] = Field(description="Result rows the intent produced.")
+    result: ResultSet = Field(
+        description="Rows, their column schema, and the intent the model actually ran."
+    )
     narrative: str = Field(description="Short narrative grounded strictly in the rows.")
     # The chart payload is intentionally absent until the chart-spec format is decided
     # (docs O-5); it attaches here once the frontend contract is fixed.

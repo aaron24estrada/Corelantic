@@ -1,3 +1,5 @@
+from typing import Any
+
 import pytest
 from pydantic import ValidationError
 
@@ -7,6 +9,8 @@ from app.semantic.errors import (
     DuplicateNameError,
     InvalidFormulaError,
     MixedEntityError,
+    NonAdditiveMetricError,
+    ReservedNameError,
     UnknownConstantError,
     UnknownDimensionError,
     UnknownEntityError,
@@ -16,9 +20,13 @@ from app.semantic.errors import (
 from app.semantic.models import (
     Aggregation,
     DerivedMetric,
+    Dimension,
+    Entity,
+    Measure,
     MetricFormat,
     MetricType,
     RatioMetric,
+    SemanticRegistry,
     SimpleMetric,
 )
 from app.semantic.registry import build_registry, validate_registry
@@ -324,3 +332,121 @@ def test_unknown_lookups_raise() -> None:
         registry.metric("missing")
     with pytest.raises(UnknownDimensionError):
         registry.dimension("missing")
+
+
+# --- additive and reserved names ------------------------------------------------------
+
+
+def _leads_registry(**metrics: Any) -> SemanticRegistry:
+    return SemanticRegistry(
+        entities={"leads": Entity(name="leads", label="Leads", source="analytics.v_leads")},
+        measures={
+            "lead_count": Measure(name="lead_count", entity="leads", agg=Aggregation.COUNT),
+            "spend_total": Measure(
+                name="spend_total", entity="leads", agg=Aggregation.SUM, column="spend"
+            ),
+            "avg_spend": Measure(
+                name="avg_spend", entity="leads", agg=Aggregation.AVG, column="spend"
+            ),
+        },
+        metrics=dict(metrics),
+    )
+
+
+def test_a_ratio_may_not_declare_itself_additive() -> None:
+    # A ratio of sums is not a sum of ratios, so a running total of one is nonsense.
+    registry = _leads_registry(
+        bad=RatioMetric(
+            name="bad",
+            label="x",
+            description="x",
+            numerator="spend_total",
+            denominator="lead_count",
+            additive=True,
+        )
+    )
+    with pytest.raises(NonAdditiveMetricError):
+        validate_registry(registry)
+
+
+def test_an_average_may_not_declare_itself_additive() -> None:
+    registry = _leads_registry(
+        bad=SimpleMetric(name="bad", label="x", description="x", measure="avg_spend", additive=True)
+    )
+    with pytest.raises(NonAdditiveMetricError):
+        validate_registry(registry)
+
+
+def test_a_sum_may_declare_itself_additive_redundantly() -> None:
+    registry = _leads_registry(
+        fine=SimpleMetric(
+            name="fine", label="x", description="x", measure="spend_total", additive=True
+        )
+    )
+    assert validate_registry(registry) is registry
+
+
+def test_a_dimension_may_not_take_a_column_name_the_compiler_emits() -> None:
+    # A windowed query selects `period`, `previous` and `delta`; a dimension of that name
+    # would collide in the rows and the survivor would depend on select order.
+    registry = _leads_registry(
+        leads=SimpleMetric(name="leads", label="x", description="x", measure="lead_count")
+    )
+    registry.dimensions["delta"] = Dimension(
+        name="delta", label="Delta", entity="leads", column="delta_col"
+    )
+    with pytest.raises(ReservedNameError):
+        validate_registry(registry)
+
+
+def test_a_derived_metric_that_is_really_a_ratio_may_not_declare_itself_additive() -> None:
+    # The Python class is not the question: `(rev - spend) / rev` is a ratio spelled as a
+    # derived metric, and summing its periods would not sum the metric.
+    registry = _leads_registry(
+        margin=DerivedMetric(
+            name="margin",
+            label="x",
+            description="x",
+            measures=["spend_total", "lead_count"],
+            expression="(spend_total - lead_count) / spend_total",
+            additive=True,
+        )
+    )
+    with pytest.raises(NonAdditiveMetricError):
+        validate_registry(registry)
+
+
+def test_a_linear_derived_metric_may_declare_itself_additive() -> None:
+    # revenue = vouchers x a fee. A year's revenue is the sum of its weeks.
+    registry = _leads_registry(
+        revenue=DerivedMetric(
+            name="revenue",
+            label="x",
+            description="x",
+            measures=["lead_count"],
+            expression="lead_count * 6000",
+            additive=True,
+        )
+    )
+    assert validate_registry(registry) is registry
+
+
+def test_a_metric_may_not_take_a_column_name_the_compiler_emits() -> None:
+    # A windowed query selects `value AS <metric>`, `previous` and `delta`.
+    registry = _leads_registry(
+        previous=SimpleMetric(name="previous", label="x", description="x", measure="lead_count")
+    )
+    with pytest.raises(ReservedNameError):
+        validate_registry(registry)
+
+
+def test_a_metric_may_not_shadow_a_dimension() -> None:
+    # Grouping metric `channel` by dimension `channel` would select two columns of that name.
+    registry = _leads_registry(
+        channel=SimpleMetric(name="channel", label="x", description="x", measure="lead_count")
+    )
+    registry.dimensions["channel"] = Dimension(
+        name="channel", label="Channel", entity="leads", column="src"
+    )
+    with pytest.raises(DuplicateNameError):
+        validate_registry(registry)

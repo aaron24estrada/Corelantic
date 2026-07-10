@@ -7,11 +7,13 @@ from sqlalchemy import Select
 from app.query.compiler import compile_query
 from app.query.errors import (
     DateDimensionError,
+    DateGroupByError,
     DimensionNotDefinedError,
     IncompatibleDimensionError,
     MetricNotDefinedError,
+    PartialAccumulationError,
 )
-from app.query.intent import QueryIntent
+from app.query.intent import Accumulation, Comparison, QueryIntent
 from app.query.time import DateRange, Grain
 from app.semantic.errors import (
     InvalidFormulaError,
@@ -20,11 +22,7 @@ from app.semantic.errors import (
 from app.semantic.models import (
     Aggregation,
     Cardinality,
-    ComparisonMetric,
-    ComparisonPeriod,
     Constant,
-    CumulativeMetric,
-    CumulativeWindow,
     DerivedMetric,
     Dimension,
     Entity,
@@ -122,19 +120,16 @@ def _registry() -> SemanticRegistry:
                 measures=["revenue_total", "spend_total"],
                 expression="(revenue_total - spend_total) / revenue_total * 100",
             ),
-            "spend_ytd": CumulativeMetric(
-                name="spend_ytd",
-                label="Spend YTD",
-                description="x",
-                measure="spend_total",
-                window=CumulativeWindow.YTD,
+            "spend": SimpleMetric(
+                name="spend", label="Spend", description="x", measure="spend_total"
             ),
-            "leads_wow_pct": ComparisonMetric(
-                name="leads_wow_pct",
-                label="Leads WoW %",
+            "conversion_rate": RatioMetric(
+                name="conversion_rate",
+                label="Conversion rate",
                 description="x",
-                measure="lead_count",
-                period=ComparisonPeriod.WOW,
+                numerator="unique_leads",
+                denominator="lead_count",
+                format=MetricFormat.PERCENT,
             ),
             "vouchers": SimpleMetric(
                 name="vouchers", label="Vouchers", description="x", measure="voucher_reached"
@@ -386,9 +381,10 @@ def test_date_range_on_a_joined_date_filters_the_joined_column() -> None:
     assert params["created_at_1"] == date(2026, 1, 1)
 
 
-def test_temporal_metrics_exclude_undated_rows() -> None:
+def test_windowed_queries_exclude_undated_rows() -> None:
     # A NULL bucket would sort ahead of every real period and LAG would read across it.
-    sql, _ = _rendered(compile_query(QueryIntent(metric="leads_wow_pct"), _registry()))
+    intent = QueryIntent(metric="new_leads", grain=Grain.WEEK, compare=Comparison())
+    sql, _ = _rendered(compile_query(intent, _registry()))
     assert "leads.created_at IS NOT NULL" in sql
 
 
@@ -475,28 +471,61 @@ def test_date_range_is_half_open() -> None:
     assert set(params.values()) == {date(2026, 1, 1), date(2026, 7, 1)}
 
 
-# --- comparison / cumulative ----------------------------------------------------------
+# --- compare / accumulate -------------------------------------------------------------
 
 
-def test_comparison_computes_prior_period_pct_delta() -> None:
-    sql, _ = _rendered(compile_query(QueryIntent(metric="leads_wow_pct"), _registry()))
+def test_compare_computes_prior_period_pct_delta() -> None:
+    intent = QueryIntent(metric="new_leads", grain=Grain.WEEK, compare=Comparison())
+    sql, _ = _rendered(compile_query(intent, _registry()))
     assert "date_trunc('week', leads.created_at) AS period" in sql
     assert "lag(anon_1.value) OVER (ORDER BY anon_1.period)" in sql
     assert "nullif(lag(anon_1.value)" in sql
-    assert "AS leads_wow_pct" in sql
+    # One request yields the series, the value and its change; a KPI tile used to need two.
+    assert "AS new_leads" in sql and "AS previous" in sql and "AS delta" in sql
 
 
-def test_comparison_partitions_by_group_dimension() -> None:
-    sql, _ = _rendered(
-        compile_query(QueryIntent(metric="leads_wow_pct", group_by=["channel"]), _registry())
+def test_compare_partitions_by_group_dimension() -> None:
+    intent = QueryIntent(
+        metric="new_leads", grain=Grain.WEEK, group_by=["channel"], compare=Comparison()
     )
+    sql, _ = _rendered(compile_query(intent, _registry()))
     assert "PARTITION BY anon_1.channel ORDER BY anon_1.period" in sql
 
 
-def test_cumulative_is_a_running_total_resetting_each_window() -> None:
-    sql, _ = _rendered(
-        compile_query(QueryIntent(metric="spend_ytd", grain=Grain.MONTH), _registry())
+def test_compare_recomputes_a_ratio_inside_each_bucket() -> None:
+    # Impossible before: a comparison could only wrap a bare measure, never a ratio. The
+    # ratio must be recomputed per bucket, not a global ratio reweighted.
+    intent = QueryIntent(metric="margin_pct", grain=Grain.MONTH, compare=Comparison())
+    sql, _ = _rendered(compile_query(intent, _registry()))
+    assert "AS value" in sql
+    assert "sum(leads.revenue)" in sql and "sum(leads.spend)" in sql
+    assert "lag(anon_1.value)" in sql
+
+
+def test_compare_of_a_derived_metric_keeps_its_constant_bound() -> None:
+    intent = QueryIntent(
+        metric="revenue", grain=Grain.MONTH, date_dimension="lead_date", compare=Comparison()
     )
+    sql, params = _rendered(compile_query(intent, _registry()))
+    assert "6000" not in sql  # the case fee is a bound parameter, never rendered
+    assert 6000.0 in params.values()
+    assert "lag(anon_1.value)" in sql
+
+
+def test_compare_of_a_percent_metric_reports_points_not_percent() -> None:
+    # 20% -> 24% rose four points. A relative change here would be arithmetically true and
+    # a misleading headline, so an absolute delta is the default for a percent metric.
+    intent = QueryIntent(metric="conversion_rate", grain=Grain.WEEK, compare=Comparison())
+    sql, _ = _rendered(compile_query(intent, _registry()))
+    assert "nullif(lag(anon_1.value)" not in sql  # no division: this is value - previous
+    assert "anon_1.value - lag(anon_1.value)" in sql
+
+
+def test_accumulate_is_a_running_total_resetting_each_period() -> None:
+    intent = QueryIntent(
+        metric="spend", grain=Grain.MONTH, accumulate=Accumulation(reset=Grain.YEAR)
+    )
+    sql, _ = _rendered(compile_query(intent, _registry()))
     assert "sum(leads.spend) AS value" in sql
     assert (
         "sum(anon_1.value) OVER (PARTITION BY date_trunc('year', anon_1.period) "
@@ -532,3 +561,36 @@ def test_unknown_dimension_raises() -> None:
 def test_metric_mixing_entities_raises() -> None:
     with pytest.raises(MixedEntityError):
         compile_query(QueryIntent(metric="leads_per_case"), _registry())
+
+
+def test_a_running_total_may_not_start_mid_period() -> None:
+    # "Year-to-date, from June" returns a June-to-date wearing the same label. The rows would
+    # look exactly like the honest ones, so the number would be believed.
+    intent = QueryIntent(
+        metric="spend",
+        grain=Grain.MONTH,
+        accumulate=Accumulation(reset=Grain.YEAR),
+        date_range=DateRange(start=date(2026, 6, 1), end=date(2026, 12, 31)),
+    )
+    with pytest.raises(PartialAccumulationError) as caught:
+        compile_query(intent, _registry())
+    assert caught.value.allowed == ["2026-01-01"]
+
+
+def test_a_running_total_starting_on_the_boundary_is_fine() -> None:
+    intent = QueryIntent(
+        metric="spend",
+        grain=Grain.MONTH,
+        accumulate=Accumulation(reset=Grain.YEAR),
+        date_range=DateRange(start=date(2026, 1, 1), end=date(2026, 12, 31)),
+    )
+    assert compile_query(intent, _registry()) is not None
+
+
+def test_bucketing_a_date_and_grouping_by_it_is_rejected() -> None:
+    # "Monthly, by lead date" would group by month *and* by day: one row per day, labelled
+    # with its month. One of the two is what the caller meant.
+    intent = QueryIntent(metric="new_leads", grain=Grain.MONTH, group_by=["lead_date"])
+    with pytest.raises(DateGroupByError) as caught:
+        compile_query(intent, _registry())
+    assert "lead_date" not in caught.value.allowed

@@ -9,8 +9,13 @@ from typing import Any, Protocol
 
 from sqlalchemy import Select
 
+from app.query.rows import Row
+
 
 class DataSource(Protocol):
-    async def run(self, statement: Select[Any]) -> list[dict[str, object]]:
-        """Execute a read-only SELECT statement (values bound in it) and return rows."""
+    async def run(self, statement: Select[Any]) -> list[Row]:
+        """Execute a read-only SELECT statement (values bound in it) and return rows.
+
+        Driver types do not escape this package: every cell is a ``CellValue``.
+        """
         ...

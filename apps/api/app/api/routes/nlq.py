@@ -1,3 +1,5 @@
+from datetime import date
+
 from fastapi import APIRouter
 
 from app.api.dependencies import OrchestratorDep
@@ -8,10 +10,9 @@ router = APIRouter(prefix="/nlq", tags=["nlq"])
 
 @router.post("/ask", response_model=AskResponse)
 async def ask(request: AskRequest, orchestrator: OrchestratorDep) -> AskResponse:
-    result = await orchestrator.ask(request.question)
+    answer = await orchestrator.ask(request.question, today=date.today())
     return AskResponse(
         question=request.question,
-        intent=result.intent,
-        rows=result.rows,
-        narrative=result.narrative,
+        result=answer.result,
+        narrative=answer.narrative,
     )

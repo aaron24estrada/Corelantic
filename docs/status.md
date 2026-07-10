@@ -4,21 +4,26 @@ Last updated 2026-07-10. A snapshot of where the build is, what's verified, what
 
 ## The headline
 
-**The backend is done for everything we can read.** The API serves **30 real metrics** over KRW's live Azure SQL (`gold_tspot`), and the same registry runs against a seeded fixture that reproduces the source's numbers. Every metric on KRW's Executive Summary is reachable **except Spend and ROAS** — and that gap is an access grant, not code.
+**The backend is done for everything we can read.** The API serves **25 real metrics** over KRW's live Azure SQL (`gold_tspot`) through `POST /api/v1/query`, and the same registry runs against a seeded fixture that reproduces the source's numbers. Every metric on KRW's Executive Summary is reachable **except Spend and ROAS** — and that gap is an access grant, not code.
+
+It was 30 until week-over-week and year-to-date stopped being *metrics*. `leads_wow_pct`, `leads_mom_pct`, `calls_wow_pct`, `leads_ytd` and `calls_mtd` are gone, replaced by `compare` and `accumulate` on the intent. That is a gain, not a loss: a comparison metric could only wrap a bare measure, so a week-over-week **voucher rate** or **revenue** was unrepresentable. Now **all 25** metrics can be compared and **17** can be accumulated, and one request returns the series, the value and the delta — a KPI tile used to need two.
 
 ## Built so far
 
 - **Docs** — the MVP spec set ([spec](./spec.md), [architecture](./architecture.md), [concepts](./concepts.md), [data & semantic layer](./data-and-semantic-layer.md), [NL pipeline](./nlq-pipeline.md), [decisions](./decisions.md), [data-model](./data-model.md)).
 - **Foundation** — `standards/`, `CLAUDE.md`, repo hygiene, pre-commit hooks.
 - **`apps/api`** (FastAPI, uv) — the semantic layer and query engine, complete:
-  - Four-type registry (entity / dimension / measure / metric), five metric types (simple, ratio, derived, cumulative, comparison), plus **registry constants** and **filtered measures**.
+  - Four-type registry (entity / dimension / measure / metric), three metric shapes (simple, ratio, derived), plus **registry constants** and **filtered measures**.
   - Query compiler: structured intent → parameterized SQLAlchemy Core. Identifiers come only from the authored registry; values are always bound. **The model never emits SQL we execute.**
+  - `POST /api/v1/query` takes an intent and returns a **`ResultSet`**: rows plus the column schema that describes them, plus the intent as it was actually run (relative window resolved to dates).
+  - **Capability layer** (`semantic/capability.py`) — one implementation answering "what can this metric be asked" both as the predicate `validate_intent` enforces and as the projection the catalog will publish, so the two cannot drift.
+  - Every bad intent is a **422** with a stable code and `allowed`: the vocabulary that would have worked. The agent repairs rather than retries.
   - Join graph with **cardinality-aware fan-out rejection**, LEFT OUTER fact→dimension joins, and date dimensions resolvable across a fan-out-free join.
-  - Dialect-neutral time intelligence (grain, ranges, WoW/MoM, MTD/YTD) with SQLite **and** SQL Server renderings.
+  - Dialect-neutral time intelligence on the **intent** (grain, ranges, `compare`, `accumulate`) with SQLite **and** SQL Server renderings.
   - Two `DataSource` adapters behind one factory: **`azure_sql`** (real, Entra auth) and **`fixture`** (seeded in-memory SQLite).
 - **`apps/web`** (Next.js 16, React 19, Tailwind v4) — runnable skeleton, typed API client from the OpenAPI schema, BFF boundary, SSR `/dashboard` listing the metric catalog. **No real UI yet** (epic D).
 
-`make check` green: 127 tests. `make validate` green: 5 entities, 19 measures, 14 dimensions, 30 metrics, 1 constant across two registry files.
+`make check` green: 183 tests. `make validate` green: 5 entities, 19 measures, 14 dimensions, 25 metrics, 1 constant across two registry files.
 
 ## Database access (O-1 — resolved)
 
@@ -60,10 +65,11 @@ Every metric definition was **verified against the live tables**, not inferred. 
 
 Unblocked, highest value first:
 
-1. **D1 — app shell + theme + primitives.** We serve 30 real metrics and have nothing to look at. Everything in epic D builds on this.
+1. **`GET /api/v1/catalog`** — the vocabulary, with each metric's groupable dimensions, reachable date dimensions, and which modifiers it supports. Built from the capability layer. Both E2's planner and D6's controls need it and neither can be written without it.
 2. **D2 / D4 / D5** — reusable states + `<Chart>`, the KPI row, core visuals. (D3/D6 gated on O-5.)
-3. **E2 — `plan_intent`** (question → validated intent), buildable against the `LLMProvider` interface with a fake, run against the fixture.
-4. **A1 — CI running `make check` on PRs.** Note CI will need `msodbcsql18` + `unixodbc-dev` to build `pyodbc`.
+3. **E2 — `plan_intent`** (question → validated intent), buildable against the `LLMProvider` interface with a fake, run against the fixture. The 422 body's `allowed` list is what lets it repair a bad intent instead of retrying blind.
+4. **A1 — CI running `make check` on PRs.** Note CI will need `msodbcsql18` + `unixodbc-dev` to build `pyodbc`, and **#48** must land first or CI goes red on its own `.env`.
+5. **Calendar spine** — `compare` uses `LAG`, which reads the previous *populated* bucket, so a fully empty week is skipped rather than shown as a drop to zero. Closing it needs a date spine joined to the buckets.
 
 Gated: spend/referrals registry (#37), NL agent wiring (E1), auth (O-4), chart contract (O-5).
 

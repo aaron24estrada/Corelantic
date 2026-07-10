@@ -24,10 +24,13 @@ from app.semantic.errors import (
     DuplicateNameError,
     InvalidFormulaError,
     MalformedRegistryError,
+    NonAdditiveMetricError,
+    ReservedNameError,
 )
-from app.semantic.formula import formula_names, validate_formula
+from app.semantic.formula import formula_is_linear, formula_names, validate_formula
 from app.semantic.models import (
     METRIC_ADAPTER,
+    Aggregation,
     Constant,
     DerivedMetric,
     Dimension,
@@ -35,10 +38,16 @@ from app.semantic.models import (
     Measure,
     Metric,
     MetricType,
+    RatioMetric,
     SemanticRegistry,
+    SimpleMetric,
     terms,
 )
 from app.semantic.resolve import resolve_metric_entity
+
+# Column labels a windowed query emits. A dimension of the same name would collide in the
+# result rows (app/query/compiler.py).
+RESERVED_COLUMN_NAMES = frozenset({"period", "previous", "delta"})
 
 
 class _UniqueKeyLoader(yaml.SafeLoader):
@@ -129,6 +138,36 @@ def _check_unique_terms(kind: str, items: dict[str, Any]) -> None:
             owner[term] = item.name
 
 
+def _check_additive(metric: Metric, registry: SemanticRegistry) -> None:
+    """A metric may only *declare* itself additive when summing its buckets means something.
+
+    Inference (app/semantic/capability.is_additive) already answers this for simple metrics.
+    The declaration exists for a derived metric linear in its measures — revenue is vouchers
+    times a fee — so what is left to police is a declaration that contradicts arithmetic.
+    """
+
+    if metric.additive is not True:
+        return
+    if isinstance(metric, RatioMetric):
+        raise NonAdditiveMetricError(metric.name, "a ratio of sums is not a sum of ratios")
+    if isinstance(metric, SimpleMetric):
+        aggregation = registry.measure(metric.measure).agg
+        if aggregation not in (Aggregation.COUNT, Aggregation.SUM):
+            raise NonAdditiveMetricError(
+                metric.name, f"its measure aggregates with {aggregation.value}, which does not sum"
+            )
+    if isinstance(metric, DerivedMetric) and not formula_is_linear(
+        metric.expression, set(metric.measures)
+    ):
+        # The Python class is not the question. `(revenue - spend) / revenue` is a ratio
+        # spelled as a derived metric, and summing its periods would not sum the metric.
+        raise NonAdditiveMetricError(
+            metric.name,
+            f"its formula {metric.expression!r} is not linear in its measures, so the sum of "
+            "its periods is not the metric of the summed periods",
+        )
+
+
 def validate_registry(
     registry: SemanticRegistry, allowed_schemas: set[str] | None = None
 ) -> SemanticRegistry:
@@ -149,6 +188,11 @@ def validate_registry(
     for name in sorted(set(registry.constants) & set(registry.measures)):
         raise DuplicateNameError("constant shadowing a measure,", name)
 
+    # A result row is keyed by name. Grouping a metric by a dimension of the same name would
+    # select two columns called the same thing, and which one survived would depend on order.
+    for name in sorted(set(registry.metrics) & set(registry.dimensions)):
+        raise DuplicateNameError("metric shadowing a dimension,", name)
+
     for entity in registry.entities.values():
         if allowed_schemas is not None:
             schema, sep, table_name = entity.source.rpartition(".")
@@ -162,11 +206,16 @@ def validate_registry(
             targets.add(edge.to)
     for dimension in registry.dimensions.values():
         registry.entity(dimension.entity)
+        if dimension.name in RESERVED_COLUMN_NAMES:
+            raise ReservedNameError("dimension", dimension.name)
     for measure in registry.measures.values():
         registry.entity(measure.entity)
     for metric in registry.metrics.values():
         # Resolves every component measure and confirms they share one entity.
         resolve_metric_entity(metric, registry)
+        if metric.name in RESERVED_COLUMN_NAMES:
+            raise ReservedNameError("metric", metric.name)
+        _check_additive(metric, registry)
         if isinstance(metric, DerivedMetric):
             # A formula may reference only its declared measures and the registry's constants;
             # an undefined name (a case fee nobody authored) fails here, not at query time.

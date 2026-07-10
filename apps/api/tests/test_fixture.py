@@ -1,5 +1,6 @@
 import asyncio
 from datetime import date
+from itertools import pairwise
 from typing import Any
 
 import pytest
@@ -7,8 +8,8 @@ import pytest
 from app.adapters.data.fixture import FixtureDataSource
 from app.core.config import get_settings
 from app.query.compiler import compile_query
-from app.query.errors import DateDimensionError, IncompatibleDimensionError
-from app.query.intent import QueryIntent
+from app.query.errors import DateDimensionError, IncompatibleDimensionError, NotAdditiveError
+from app.query.intent import Accumulation, Comparison, QueryIntent
 from app.query.time import DateRange, Grain
 from app.semantic.registry import load_registry
 
@@ -236,3 +237,112 @@ def test_date_range_narrows_the_result(fixture_source: FixtureDataSource, regist
         registry,
     )[0]["new_leads"]
     assert 0 < int(windowed) < int(full)
+
+
+# --- time intelligence on the intent --------------------------------------------------
+
+
+def test_week_over_week_of_a_ratio_matches_a_hand_computed_series(
+    fixture_source: FixtureDataSource, registry: Any
+) -> None:
+    """The claim the whole design rests on, checked against real numbers.
+
+    A comparison used to be able to wrap only a bare measure, so "voucher rate week over
+    week" was unrepresentable. The ratio must be recomputed *inside* each bucket and then
+    compared — not a global ratio reweighted.
+    """
+
+    from sqlalchemy import case, column, distinct, func, select, table
+
+    from app.query.time import DateBucket
+
+    intent = QueryIntent(
+        metric="voucher_rate", grain=Grain.WEEK, compare=Comparison(), date_dimension="lead_date"
+    )
+    got = {row["period"]: row for row in _run(fixture_source, intent, registry)}
+
+    # Recompute numerator/denominator per week straight from the tables.
+    stages = table("stages", column("LeadId"), column("StageName"), schema="gold_tspot").alias("s")
+    cases = table("cases", column("LeadId"), column("CreateDate"), schema="gold_tspot").alias("c")
+    bucket = DateBucket(Grain.WEEK, cases.c.CreateDate)
+    manual = (
+        select(
+            bucket.label("period"),
+            func.count(
+                distinct(case((stages.c.StageName == "Voucher (Initial Intake)", stages.c.LeadId)))
+            ).label("numerator"),
+            func.count(distinct(stages.c.LeadId)).label("denominator"),
+        )
+        .select_from(stages.join(cases, stages.c.LeadId == cases.c.LeadId, isouter=True))
+        .where(cases.c.CreateDate.is_not(None))
+        .group_by(bucket)
+    )
+    expected = asyncio.run(fixture_source.run(manual))
+
+    checked = 0
+    for row in expected:
+        if not row["denominator"]:
+            continue
+        rate = float(row["numerator"]) / float(row["denominator"])  # type: ignore[arg-type]
+        assert got[row["period"]]["voucher_rate"] == pytest.approx(rate)
+        checked += 1
+    assert checked > 100
+
+
+def test_a_percent_metrics_delta_is_the_difference_in_points(
+    fixture_source: FixtureDataSource, registry: Any
+) -> None:
+    intent = QueryIntent(
+        metric="voucher_rate", grain=Grain.WEEK, compare=Comparison(), date_dimension="lead_date"
+    )
+    rows = _run(fixture_source, intent, registry)
+    for earlier, later in pairwise(rows):
+        assert later["previous"] == pytest.approx(earlier["voucher_rate"])
+        assert later["delta"] == pytest.approx(later["voucher_rate"] - earlier["voucher_rate"])
+
+
+def test_revenue_accumulates_because_it_declares_itself_additive(
+    fixture_source: FixtureDataSource, registry: Any
+) -> None:
+    monthly = _run(
+        fixture_source,
+        QueryIntent(metric="revenue", grain=Grain.MONTH, date_dimension="lead_date"),
+        registry,
+    )
+    running = _run(
+        fixture_source,
+        QueryIntent(
+            metric="revenue",
+            grain=Grain.MONTH,
+            date_dimension="lead_date",
+            accumulate=Accumulation(reset=Grain.YEAR),
+        ),
+        registry,
+    )
+    by_period = {row["period"]: row["revenue"] for row in monthly}
+
+    total = 0.0
+    for row in running:
+        period = row["period"]
+        assert isinstance(period, date)
+        if period.month == 1:
+            total = 0.0
+        total += float(by_period[period])
+        assert row["revenue"] == pytest.approx(total)
+
+
+def test_a_rate_cannot_be_accumulated(fixture_source: FixtureDataSource, registry: Any) -> None:
+    # Summing weekly voucher rates does not produce a voucher rate.
+    with pytest.raises(NotAdditiveError) as caught:
+        _run(
+            fixture_source,
+            QueryIntent(
+                metric="voucher_rate",
+                grain=Grain.MONTH,
+                date_dimension="lead_date",
+                accumulate=Accumulation(reset=Grain.YEAR),
+            ),
+            registry,
+        )
+    assert "revenue" in caught.value.allowed
+    assert "voucher_rate" not in caught.value.allowed

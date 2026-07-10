@@ -10,8 +10,6 @@ from typing import assert_never
 
 from app.semantic.errors import MixedEntityError
 from app.semantic.models import (
-    ComparisonMetric,
-    CumulativeMetric,
     DerivedMetric,
     Metric,
     RatioMetric,
@@ -29,8 +27,6 @@ def measure_names(metric: Metric) -> list[str]:
         return [metric.numerator, metric.denominator]
     if isinstance(metric, DerivedMetric):
         return list(metric.measures)
-    if isinstance(metric, (CumulativeMetric, ComparisonMetric)):
-        return [metric.measure]
     assert_never(metric)
 
 

@@ -17,14 +17,15 @@ A metric aggregates one fact entity, but its group-by dimensions may live on oth
 entities. ``_build_plan`` finds the join path from the fact entity to each and builds an
 aliased, joined FROM; every column is then referenced through its entity's alias
 (``plan.col(entity, column)``), so a joined query is unambiguous by construction. Most
-metrics compile to a flat aggregate; cumulative and comparison metrics are windowed over a
-per-bucket subquery (see ``_compile_temporal``). Grain truncation is the dialect-neutral
-``DateBucket`` (app/query/time); its SQL Server rendering ships with the C2 adapter.
+metrics compile to a flat aggregate; an intent carrying ``compare`` or ``accumulate`` is
+windowed over a per-bucket subquery (see ``_compile_windowed``) — a property of the question,
+not of the metric. Grain truncation is the dialect-neutral ``DateBucket`` (app/query/time);
+its SQL Server rendering ships with the C2 adapter.
 """
 
 from dataclasses import dataclass
-from datetime import timedelta
-from typing import Any
+from datetime import date, timedelta
+from typing import Any, assert_never
 
 from sqlalchemy import (
     ColumnElement,
@@ -41,16 +42,12 @@ from sqlalchemy.sql.selectable import FromClause, NamedFromClause, Subquery
 
 from app.query.formula import build_formula, safe_divide
 from app.query.intent import QueryIntent
-from app.query.time import DateBucket, DateRange, Grain
+from app.query.time import DateBucket, DateRange
 from app.query.validate import ResolvedIntent, validate_intent
 from app.semantic.errors import JoinFanOutError
 from app.semantic.joins import JoinStep, find_join_path
 from app.semantic.models import (
     Aggregation,
-    ComparisonMetric,
-    ComparisonPeriod,
-    CumulativeMetric,
-    CumulativeWindow,
     DerivedMetric,
     Dimension,
     Measure,
@@ -60,9 +57,6 @@ from app.semantic.models import (
     SimpleMetric,
 )
 from app.semantic.resolve import measure_names, resolve_metric_entity
-
-_PERIOD_GRAIN = {ComparisonPeriod.WOW: Grain.WEEK, ComparisonPeriod.MOM: Grain.MONTH}
-_WINDOW_GRAIN = {CumulativeWindow.MTD: Grain.MONTH, CumulativeWindow.YTD: Grain.YEAR}
 
 
 @dataclass(frozen=True)
@@ -76,16 +70,24 @@ class _Plan:
         return self.tables[entity].c[column_name]
 
 
-def compile_query(intent: QueryIntent, registry: SemanticRegistry) -> Select[Any]:
-    return _compile_resolved(validate_intent(intent, registry), registry)
+def compile_query(
+    intent: QueryIntent, registry: SemanticRegistry, *, today: date | None = None
+) -> Select[Any]:
+    return compile_resolved(validate_intent(intent, registry, today=today), registry)
 
 
-def _compile_resolved(resolved: ResolvedIntent, registry: SemanticRegistry) -> Select[Any]:
+def compile_resolved(resolved: ResolvedIntent, registry: SemanticRegistry) -> Select[Any]:
+    """Compile an already-validated intent. The service holds the resolved form for the
+    response, so re-validating here would do the work twice and could disagree."""
+
     metric = registry.metric(resolved.intent.metric)
     base = resolve_metric_entity(metric, registry)
 
-    if isinstance(metric, (ComparisonMetric, CumulativeMetric)):
-        return _compile_temporal(metric, resolved, base, registry)
+    # Windowed by what the *question* asks, not by what the metric is. Any metric can be
+    # compared or accumulated; a metric that could only be compared was the old design's
+    # mistake (see app/semantic/models.py).
+    if resolved.intent.compare is not None or resolved.intent.accumulate is not None:
+        return _compile_windowed(metric, resolved, base, registry)
     return _compile_aggregate(metric, resolved, base, registry)
 
 
@@ -117,25 +119,30 @@ def _compile_aggregate(
     selected.append(value_expr.label(metric.name))
 
     statement = select(*selected).select_from(plan.from_clause)
-    statement = _apply_where(statement, intent, filter_dimensions, date_dimension, plan)
+    statement = _apply_where(statement, resolved, filter_dimensions, date_dimension, plan)
     if group_bys:
         statement = statement.group_by(*group_bys)
     return statement
 
 
-def _compile_temporal(
-    metric: ComparisonMetric | CumulativeMetric,
-    resolved: ResolvedIntent,
-    base: str,
-    registry: SemanticRegistry,
+def _compile_windowed(
+    metric: Metric, resolved: ResolvedIntent, base: str, registry: SemanticRegistry
 ) -> Select[Any]:
+    """A per-bucket aggregate, then a window function across the buckets.
+
+    The inner subquery computes the metric's whole value expression *within* each bucket, so a
+    ratio is recomputed per period rather than a global ratio reweighted — "voucher rate, week
+    over week" compares this week's rate to last week's. That is what makes comparison work for
+    a ratio or a derived metric at all; the old design could only wrap a bare measure.
+    """
+
     intent = resolved.intent
-    measure = registry.measure(metric.measure)
     filter_dimensions = {name: registry.dimension(name) for name in intent.filters}
     group_dimensions = [registry.dimension(name) for name in intent.group_by]
-    # A temporal metric always anchors on a date; validate_intent resolved which one.
+    # A time modifier requires a grain, and a grain requires a date; validate_intent settled both.
     date_dimension = resolved.date_dimension
     assert date_dimension is not None
+    assert intent.grain is not None
 
     references = _references(
         metric, group_dimensions, list(filter_dimensions.values()), date_dimension, registry
@@ -143,13 +150,13 @@ def _compile_temporal(
     plan = _build_plan(base, references, registry)
 
     date_col = plan.col(date_dimension.entity, date_dimension.column)
-    bucket = DateBucket(_bucket_grain(metric, intent), date_col)
+    bucket = DateBucket(intent.grain, date_col)
     inner: list[ColumnElement[Any]] = [bucket.label("period")]
     inner += [plan.col(d.entity, d.column).label(d.name) for d in group_dimensions]
-    inner.append(_measure_expression(measure, plan).label("value"))
+    inner.append(_value_expression(metric, registry, plan).label("value"))
 
     aggregate = select(*inner).select_from(plan.from_clause)
-    aggregate = _apply_where(aggregate, intent, filter_dimensions, date_dimension, plan)
+    aggregate = _apply_where(aggregate, resolved, filter_dimensions, date_dimension, plan)
     # An undated row has no place in an ordered period series: it would bucket to NULL, sort
     # ahead of every real period, and LAG / the running sum would read across it.
     aggregate = aggregate.where(date_col.is_not(None))
@@ -158,11 +165,41 @@ def _compile_temporal(
     )
     sub = aggregate.subquery()
 
-    delta = _window_value(metric, sub, group_dimensions)
     outer: list[ColumnElement[Any]] = [sub.c.period]
     outer += [sub.c[d.name] for d in group_dimensions]
-    outer.append(delta.label(metric.name))
+    outer += _window_columns(intent, metric.name, sub, group_dimensions)
     return select(*outer).select_from(sub)
+
+
+def _window_columns(
+    intent: QueryIntent, metric_name: str, sub: Subquery, group_dimensions: list[Dimension]
+) -> list[ColumnElement[Any]]:
+    """The value column, plus whatever the intent's time modifier adds beside it."""
+
+    value = sub.c.value
+    period = sub.c.period
+    partition = [sub.c[d.name] for d in group_dimensions]
+
+    if intent.accumulate is not None:
+        reset = DateBucket(intent.accumulate.reset, period)
+        running = func.sum(value).over(
+            partition_by=[reset, *partition], order_by=period, rows=(None, 0)
+        )
+        return [running.label(metric_name)]
+
+    assert intent.compare is not None  # windowed only when one modifier is set
+    # LAG compares to the previous *populated* bucket. With continuous data that is the prior
+    # calendar period; a fully empty week has no row and is skipped. Closing that gap needs a
+    # calendar spine joined to the buckets.
+    previous = func.lag(value).over(partition_by=partition, order_by=period)
+    delta = (
+        safe_divide(value - previous, previous)
+        if intent.compare.kind == "pct"
+        else value - previous
+    )
+    # One request yields the series, the current value and its change — a KPI tile used to
+    # need two, with no guarantee both covered the same window.
+    return [value.label(metric_name), previous.label("previous"), delta.label("delta")]
 
 
 def _references(
@@ -239,7 +276,11 @@ def _build_plan(base: str, references: dict[str, set[str]], registry: SemanticRe
 def _value_expression(
     metric: Metric, registry: SemanticRegistry, plan: _Plan
 ) -> ColumnElement[Any]:
-    """The metric's value as a Core expression, dispatched on its (non-temporal) type."""
+    """The metric's value as one aggregate Core expression, dispatched on its shape.
+
+    Used both flat and inside a windowed query's per-bucket subquery, which is what lets a
+    ratio or a derived metric be compared across periods.
+    """
 
     if isinstance(metric, SimpleMetric):
         return _measure_expression(registry.measure(metric.measure), plan)
@@ -257,8 +298,7 @@ def _value_expression(
 
         allowed = set(metric.measures) | set(registry.constants)
         return build_formula(metric.expression, allowed, resolve)
-    # Temporal metrics are compiled by _compile_temporal, never here.
-    raise AssertionError(f"non-aggregate metric reached _value_expression: {metric!r}")
+    assert_never(metric)
 
 
 def _measure_expression(measure: Measure, plan: _Plan) -> ColumnElement[Any]:
@@ -290,51 +330,22 @@ def _filter_predicate(measure: Measure, plan: _Plan) -> ColumnElement[bool]:
     return plan.col(measure.entity, measure.filter.column) == measure.filter.equals
 
 
-def _window_value(
-    metric: ComparisonMetric | CumulativeMetric,
-    sub: Subquery,
-    group_dimensions: list[Dimension],
-) -> ColumnElement[Any]:
-    value = sub.c.value
-    period = sub.c.period
-    partition = [sub.c[d.name] for d in group_dimensions]
-
-    if isinstance(metric, ComparisonMetric):
-        # LAG compares to the previous *populated* bucket. With continuous data (daily
-        # leads/spend) that is the prior calendar period; a fully empty week/month has no
-        # row and would be skipped. Closing that gap needs a calendar spine joined to the
-        # buckets — a DimDate join, a natural extension now that joins exist.
-        prior = func.lag(value).over(partition_by=partition, order_by=period)
-        if metric.kind == "pct":
-            return safe_divide(value - prior, prior)
-        return value - prior
-
-    reset = DateBucket(_WINDOW_GRAIN[metric.window], period)
-    return func.sum(value).over(partition_by=[reset, *partition], order_by=period, rows=(None, 0))
-
-
-def _bucket_grain(metric: ComparisonMetric | CumulativeMetric, intent: QueryIntent) -> Grain:
-    # Comparison's grain is fixed by its period (WoW is weekly); cumulative accumulates at
-    # the requested grain, defaulting to daily.
-    if isinstance(metric, ComparisonMetric):
-        return _PERIOD_GRAIN[metric.period]
-    return intent.grain or Grain.DAY
-
-
 def _apply_where(
     statement: Select[Any],
-    intent: QueryIntent,
+    resolved: ResolvedIntent,
     filter_dimensions: dict[str, Dimension],
     date_dimension: Dimension | None,
     plan: _Plan,
 ) -> Select[Any]:
-    for name, value in intent.filters.items():
+    for name, value in resolved.intent.filters.items():
         dimension = filter_dimensions[name]
         # Core binds the value as a parameter; it is never rendered into the SQL text.
         statement = statement.where(plan.col(dimension.entity, dimension.column) == value)
-    if intent.date_range is not None:
+    # The window is always explicit here: a relative range was resolved against one reference
+    # date at the boundary, so every visual on a dashboard load covers the same days.
+    if resolved.date_range is not None:
         assert date_dimension is not None  # resolved whenever a range is set
-        for condition in _range_conditions(plan, date_dimension, intent.date_range):
+        for condition in _range_conditions(plan, date_dimension, resolved.date_range):
             statement = statement.where(condition)
     return statement
 

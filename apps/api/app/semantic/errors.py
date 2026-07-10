@@ -1,10 +1,10 @@
 """Errors raised when the semantic registry cannot resolve or define its vocabulary.
 
-Metric and dimension lookups fail when an *intent* names vocabulary we do not define —
-a client error that maps to a 404 at the HTTP boundary, never a guess. Entity and
-measure lookups back the internal references between the types, and a metric whose
-component measures span entities is a definition error; both are caught at load by
-``validate_registry`` (authoring errors, not request errors).
+These are *our* mistakes, not a caller's. An intent naming vocabulary we do not define is
+caught first by ``app/query/validate.py`` and answered with a 422 that lists what would have
+worked; a SemanticError reaching the HTTP boundary means the registry disagrees with itself,
+so it maps to a 500 and tells the client nothing. Most are caught at load by
+``validate_registry`` and never reach a request at all.
 """
 
 
@@ -161,4 +161,32 @@ class DuplicateJoinError(SemanticError):
 class UnknownDimensionError(SemanticError):
     def __init__(self, name: str) -> None:
         super().__init__(f"Unknown dimension: {name!r}.")
+        self.name = name
+
+
+class NonAdditiveMetricError(SemanticError):
+    """A metric declares ``additive: true`` when its values cannot be summed across periods.
+
+    A running total sums buckets. Summing weekly voucher *rates*, or weekly average call
+    durations, produces a number that is not a rate and not an average. Declaring one additive
+    would make a year-to-date of it compile and return nonsense, so we refuse at load.
+    """
+
+    def __init__(self, metric: str, reason: str) -> None:
+        super().__init__(f"Metric {metric!r} cannot be additive: {reason}.")
+        self.metric = metric
+        self.reason = reason
+
+
+class ReservedNameError(SemanticError):
+    """A dimension takes a name the compiler emits for a column of its own.
+
+    A windowed query selects ``period``, ``previous`` and ``delta``. A dimension of the same
+    name would collide in the result rows, and the value that survived would depend on select
+    order rather than on meaning.
+    """
+
+    def __init__(self, kind: str, name: str) -> None:
+        super().__init__(f"{kind.capitalize()} {name!r} uses a name the compiler reserves.")
+        self.kind = kind
         self.name = name

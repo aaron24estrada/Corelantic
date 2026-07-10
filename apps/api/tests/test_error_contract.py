@@ -55,12 +55,14 @@ def test_an_unknown_metric_in_an_intent_is_422_not_404() -> None:
     assert response.json()["allowed"] == ["new_leads"]
 
 
-def test_an_unknown_metric_in_a_path_is_still_404() -> None:
-    # A path param names a resource; a missing one is Not Found, as before.
+def test_a_semantic_error_escaping_validation_is_a_500_not_a_404() -> None:
+    # It used to be 404. But after validate_intent, a raw SemanticError means the registry
+    # disagrees with itself — our bug, not the caller's, and the client learns nothing.
     response = _client_raising(UnknownMetricError("nope")).get("/api/v1/_raise")
 
-    assert response.status_code == 404
-    assert response.json()["code"] is None
+    assert response.status_code == 500
+    assert response.json()["detail"] == "Internal server error."
+    assert "nope" not in response.text
 
 
 def test_an_unconfigured_provider_is_503() -> None:

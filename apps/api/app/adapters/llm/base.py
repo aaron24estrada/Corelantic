@@ -9,6 +9,7 @@ pending a key) live beside this module and are selected by the factory.
 from typing import Protocol
 
 from app.query.intent import QueryIntent
+from app.query.rows import Row
 from app.semantic.models import SemanticRegistry
 
 
@@ -17,6 +18,6 @@ class LLMProvider(Protocol):
         """Interpret a question into a structured intent, using only registry vocabulary."""
         ...
 
-    async def write_narrative(self, question: str, rows: list[dict[str, object]]) -> str:
+    async def write_narrative(self, question: str, rows: list[Row]) -> str:
         """Write a short narrative grounded strictly in the returned rows."""
         ...
