@@ -12,9 +12,14 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 # apps/api, the directory that holds this package and the semantic registry.
 PACKAGE_ROOT = Path(__file__).resolve().parents[2]
 
+# Named rather than spelled twice: the test suite strips exactly this prefix from the
+# environment to keep itself hermetic (tests/conftest.py), and a prefix that drifted from the
+# one it strips would silently let the machine's configuration back into the tests.
+ENV_PREFIX = "CORELANTIC_API_"
+
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_prefix="CORELANTIC_API_", env_file=".env", extra="ignore")
+    model_config = SettingsConfigDict(env_prefix=ENV_PREFIX, env_file=".env", extra="ignore")
 
     host: str = "127.0.0.1"
     port: int = 8080

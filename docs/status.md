@@ -24,7 +24,7 @@ It was 30 until week-over-week and year-to-date stopped being *metrics*. `leads_
   - Two `DataSource` adapters behind one factory: **`azure_sql`** (real, Entra auth) and **`fixture`** (seeded in-memory SQLite).
 - **`apps/web`** (Next.js 16, React 19, Tailwind v4) — runnable skeleton, typed API client from the OpenAPI schema, BFF boundary, SSR `/dashboard` listing the metric catalog. **No real UI yet** (epic D).
 
-`make check` green: 215 tests. `make validate` green: 5 entities, 19 measures, 14 dimensions, 25 metrics, 1 constant across two registry files.
+`make check` green: 223 tests. `make validate` green: 5 entities, 19 measures, 14 dimensions, 25 metrics, 1 constant across two registry files.
 
 ## Database access (O-1 — resolved)
 
@@ -68,7 +68,7 @@ Unblocked, highest value first:
 
 1. **E2 — `plan_intent`** (question → validated intent), buildable against the `LLMProvider` interface with a fake, run against the fixture. `GET /catalog` gives the planner its vocabulary; the 422 body's `allowed` list lets it repair a bad intent instead of retrying blind.
 2. **D2 / D4 / D5** — reusable states + `<Chart>`, the KPI row, core visuals. (D3/D6 gated on O-5.) D4's KPI tiles are now one request each: `compare` returns the series, the value and the delta together.
-3. **A1 — CI running `make check` on PRs.** Note CI will need `msodbcsql18` + `unixodbc-dev` to build `pyodbc`, and **#48** must land first or CI goes red on its own `.env`.
+3. **A1 — CI running `make check` on PRs.** Note CI will need `msodbcsql18` + `unixodbc-dev` to build `pyodbc`. The suite is hermetic now (#48): it ignores `.env` and every `CORELANTIC_API_*` variable, so CI can set whatever it likes.
 4. **#52 — calendar spine.** `compare` uses `LAG`, which reads the previous *populated* bucket, so a fully empty week is skipped rather than shown as a drop to zero.
 5. **#53 — accumulation vs display window.** A running total must start on its reset boundary, so **D6's date-range control will 422 a "Revenue YTD" tile** the moment the picked range doesn't start on 1 January. Fix before D6, not after.
 
@@ -82,6 +82,7 @@ Gated: spend/referrals registry (#37), NL agent wiring (E1), auth (O-4), chart c
   ```bash
   codex exec --sandbox read-only --skip-git-repo-check "$(cat prompt.txt)" < /dev/null > codex.log 2>&1
   ```
+- **The test suite reads nothing from the machine.** `Settings` loads `.env` *and* every `CORELANTIC_API_*` variable, so tests inherited whatever a developer or CI runner had set: some failed for people who followed the setup docs, and the rest passed only because someone's file held the value they asserted. An autouse fixture strips both channels, with canary tests that fail loudly if it ever stops (#48).
 - **The fixture mirrors the real schema.** One registry serves both, so a fixture test is a real test. Fixture reproduces the source: 86,973 leads, 38.3% no-geo, voucher rate 24.1%, answer rate 80.86%, agent conversion 4.44%.
 
 ## Running it locally
