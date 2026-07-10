@@ -7,11 +7,16 @@ physical bindings along the four types the design rests on (see docs/concepts.md
 - **Entity** — the only type that binds a physical table or view (its ``source``).
 - **Dimension** — a column (or expression) on an entity you can group or filter by.
 - **Measure** — an aggregation over an entity, e.g. ``count(*)`` or ``sum(spend)``.
-- **Metric** — a business-facing value built from measures, in one of five shapes
-  (the taxonomy from docs/data-model.md, mirroring dbt MetricFlow):
-  *simple* surfaces one measure; *ratio* divides two; *derived* is a formula over
-  several; *cumulative* (MTD/YTD) and *comparison* (WoW/MoM) add time intelligence and
-  are compiled by B4.
+- **Metric** — a business-facing value built from measures, in one of three shapes:
+  *simple* surfaces one measure; *ratio* divides two; *derived* is a formula over several.
+
+Time intelligence is deliberately absent from this list. A week-over-week change and a
+year-to-date total are properties of a *question*, not of a definition, so they ride on the
+intent (``compare``, ``accumulate``) rather than spawning a metric per metric per period.
+Modelling them as metric types made "week-over-week voucher rate" unrepresentable — a
+comparison could only wrap a bare measure, never a ratio — and forced two requests to draw
+one KPI tile. See docs/concepts.md §2: the model is a neutral vocabulary; the intent adapts
+it per visual.
 
 Logical concepts reference an entity or measure *by name* rather than carrying a table +
 raw SQL inline. Entity ``source`` names and measure/dimension expressions are authored by
@@ -55,28 +60,14 @@ class MetricFormat(StrEnum):
     NUMBER = "number"
     CURRENCY = "currency"
     PERCENT = "percent"
+    # The absolute change of a percent metric: 20% to 24% is +4 points, not +4 percent.
+    PERCENT_POINT = "percent_point"
 
 
 class MetricType(StrEnum):
     SIMPLE = "simple"
     RATIO = "ratio"
     DERIVED = "derived"
-    CUMULATIVE = "cumulative"
-    COMPARISON = "comparison"
-
-
-class CumulativeWindow(StrEnum):
-    """The period a cumulative metric accumulates within before resetting."""
-
-    MTD = "mtd"
-    YTD = "ytd"
-
-
-class ComparisonPeriod(StrEnum):
-    """The prior period a comparison metric measures change against."""
-
-    WOW = "wow"
-    MOM = "mom"
 
 
 class Aggregation(StrEnum):
@@ -227,6 +218,16 @@ class MetricBase(SemanticModel):
     format: MetricFormat = Field(
         default=MetricFormat.NUMBER, description="How the value is formatted for display."
     )
+    additive: bool | None = Field(
+        default=None,
+        description=(
+            "Whether the metric's values may be summed across periods, which is what a "
+            "running total (MTD/YTD) does. Left unset it is inferred: a count or a sum is "
+            "additive, an average or a ratio is not. Declare it on a derived metric whose "
+            "formula is linear in its measures — revenue is vouchers times a fee, so a "
+            "year-to-date revenue is the sum of its weeks; an average duration is not."
+        ),
+    )
     synonyms: list[str] = Field(
         default_factory=list, description="Natural-language aliases used for matching."
     )
@@ -264,27 +265,8 @@ class DerivedMetric(MetricBase):
     )
 
 
-class CumulativeMetric(MetricBase):
-    """A measure accumulated over a time window (MTD/YTD). Compiled by B4."""
-
-    type: Literal[MetricType.CUMULATIVE] = MetricType.CUMULATIVE
-    measure: str = Field(description="Name of the measure to accumulate.")
-    window: CumulativeWindow = Field(description="Period the running total resets within.")
-
-
-class ComparisonMetric(MetricBase):
-    """A measure compared to a prior period (WoW/MoM)."""
-
-    type: Literal[MetricType.COMPARISON] = MetricType.COMPARISON
-    measure: str = Field(description="Name of the measure to compare across periods.")
-    period: ComparisonPeriod = Field(description="Prior period to compare against.")
-    kind: Literal["pct", "change"] = Field(
-        default="pct", description="Percent change or absolute change."
-    )
-
-
 Metric = Annotated[
-    SimpleMetric | RatioMetric | DerivedMetric | CumulativeMetric | ComparisonMetric,
+    SimpleMetric | RatioMetric | DerivedMetric,
     Field(discriminator="type"),
 ]
 

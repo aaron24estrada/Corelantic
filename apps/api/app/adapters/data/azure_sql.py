@@ -16,6 +16,7 @@ from sqlalchemy import Select, create_engine, event
 from sqlalchemy.engine import URL, Engine
 
 import app.adapters.data.mssql  # noqa: F401 — registers the DateBucket mssql rendering
+from app.adapters.data.base import Row
 from app.core.config import Settings
 
 # ODBC attribute for an AAD access token, and the SQL scope it must be issued for.
@@ -42,10 +43,10 @@ class AzureSqlDataSource:
             # A slow read must not pin a pool slot and worker thread indefinitely.
             dbapi_connection.timeout = _QUERY_TIMEOUT_SECONDS
 
-    async def run(self, statement: Select[Any]) -> list[dict[str, object]]:
+    async def run(self, statement: Select[Any]) -> list[Row]:
         return await asyncio.to_thread(self._run, statement)
 
-    def _run(self, statement: Select[Any]) -> list[dict[str, object]]:
+    def _run(self, statement: Select[Any]) -> list[Row]:
         with self._engine.connect() as connection:
             return [dict(row) for row in connection.execute(statement).mappings().all()]
 

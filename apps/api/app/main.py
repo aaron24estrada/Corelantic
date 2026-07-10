@@ -48,7 +48,11 @@ def create_app() -> FastAPI:
 
     @app.exception_handler(SemanticError)
     async def _handle_semantic_error(_: Request, exc: SemanticError) -> JSONResponse:
-        return _body(ErrorResponse(detail=str(exc)), 404)
+        # A caller's mistake is an IntentError, caught above. Reaching here means the registry
+        # disagrees with itself — a dangling reference that load-time validation should have
+        # refused — so it is ours, and the client learns nothing about our internals.
+        logger.exception("semantic error escaped validation", exc_info=exc)
+        return _body(ErrorResponse(detail="Internal server error."), 500)
 
     @app.exception_handler(ProviderNotConfiguredError)
     async def _handle_not_configured(_: Request, exc: ProviderNotConfiguredError) -> JSONResponse:

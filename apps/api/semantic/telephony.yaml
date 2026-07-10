@@ -187,20 +187,8 @@ metrics:
     label: "Avg wait time (sec)"
     description: "Mean time a caller waited before pickup."
     measure: avg_wait_seconds
-  calls_wow_pct:
-    type: comparison
-    label: "Calls WoW %"
-    description: "Week-over-week percent change in calls."
-    measure: call_count
-    period: wow
-    kind: pct
-    format: percent
-  calls_mtd:
-    type: cumulative
-    label: "Calls MTD"
-    description: "Month-to-date running total of calls."
-    measure: call_count
-    window: mtd
+  # calls_wow_pct and calls_mtd used to live here; they are now `compare` and `accumulate`
+  # on any metric's intent. See app/query/intent.py.
   leads_contacted:
     label: "Leads contacted"
     description: "Leads agents reached out to."

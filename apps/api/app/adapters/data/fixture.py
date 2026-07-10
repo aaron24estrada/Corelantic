@@ -20,6 +20,7 @@ from sqlalchemy.engine import Engine
 from sqlalchemy.pool import StaticPool
 
 import app.adapters.data.sqlite  # noqa: F401 — registers the DateBucket SQLite rendering
+from app.adapters.data.base import Row
 from app.adapters.data.seed import SCHEMA, build_rows
 
 _SCHEMA_NAME = "gold_tspot"
@@ -47,11 +48,11 @@ class FixtureDataSource:
                     insert = f"INSERT INTO {_SCHEMA_NAME}.{table} ({column_list}) VALUES ({binds})"
                     connection.execute(text(insert), rows[table])
 
-    async def run(self, statement: Select[Any]) -> list[dict[str, object]]:
+    async def run(self, statement: Select[Any]) -> list[Row]:
         # SQLite/pysqlite is blocking; run off the event loop to honour the async contract.
         return await asyncio.to_thread(self._run, statement)
 
-    def _run(self, statement: Select[Any]) -> list[dict[str, object]]:
+    def _run(self, statement: Select[Any]) -> list[Row]:
         with self._lock, self._engine.connect() as connection:
             return [dict(row) for row in connection.execute(statement).mappings().all()]
 

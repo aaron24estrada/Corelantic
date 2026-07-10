@@ -3,7 +3,15 @@ from datetime import date
 import pytest
 from sqlalchemy import column, select
 
-from app.query.time import DateBucket, DateRange, Grain, resolve_range
+from app.query.time import (
+    DateBucket,
+    DateRange,
+    Grain,
+    RelativeRange,
+    nesting_grains,
+    nests_in,
+    resolve_range,
+)
 
 
 def _sql(grain: Grain) -> str:
@@ -32,18 +40,39 @@ def test_date_bucket_cache_key_distinguishes_grain_and_column() -> None:
 
 
 def test_resolve_relative_last_n_days_is_inclusive() -> None:
-    got = resolve_range("last_90_days", date(2026, 7, 6))
+    got = resolve_range(RelativeRange.LAST_90_DAYS, date(2026, 7, 6))
     assert got == DateRange(start=date(2026, 4, 8), end=date(2026, 7, 6))
 
 
 def test_resolve_month_and_year_to_date() -> None:
-    assert resolve_range("month_to_date", date(2026, 7, 6)).start == date(2026, 7, 1)
-    assert resolve_range("year_to_date", date(2026, 7, 6)).start == date(2026, 1, 1)
+    assert resolve_range(RelativeRange.MONTH_TO_DATE, date(2026, 7, 6)).start == date(2026, 7, 1)
+    assert resolve_range(RelativeRange.YEAR_TO_DATE, date(2026, 7, 6)).start == date(2026, 1, 1)
 
 
-def test_resolve_unknown_spec_raises() -> None:
+def test_an_unknown_relative_range_cannot_be_constructed() -> None:
+    # A closed enum, so an invented window is rejected at the request boundary rather than
+    # reaching resolve_range at all.
     with pytest.raises(ValueError):
-        resolve_range("since_the_dawn_of_time", date(2026, 7, 6))
+        RelativeRange("since_the_dawn_of_time")
+
+
+def test_days_nest_in_every_coarser_period() -> None:
+    assert nests_in(Grain.DAY, Grain.MONTH)
+    assert nests_in(Grain.MONTH, Grain.YEAR)
+    assert nests_in(Grain.QUARTER, Grain.YEAR)
+
+
+def test_a_week_does_not_nest_in_a_month() -> None:
+    # The week that straddles a month boundary belongs to both, so a month-to-date over
+    # weekly buckets has no honest answer.
+    assert not nests_in(Grain.WEEK, Grain.MONTH)
+    assert not nests_in(Grain.WEEK, Grain.QUARTER)
+    assert nesting_grains(Grain.WEEK) == ["year"]
+
+
+def test_nothing_nests_in_itself() -> None:
+    for grain in Grain:
+        assert not nests_in(grain, grain)
 
 
 def test_date_range_rejects_start_after_end() -> None:

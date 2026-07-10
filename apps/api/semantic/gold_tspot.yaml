@@ -128,30 +128,11 @@ metrics:
     description: "Count of distinct leads."
     measure: distinct_leads
     synonyms: ["distinct leads"]
-  leads_wow_pct:
-    type: comparison
-    label: "Leads WoW %"
-    description: "Week-over-week percent change in new leads."
-    measure: lead_count
-    period: wow
-    kind: pct
-    format: percent
-    synonyms: ["leads week over week"]
-  leads_mom_pct:
-    type: comparison
-    label: "Leads MoM %"
-    description: "Month-over-month percent change in new leads."
-    measure: lead_count
-    period: mom
-    kind: pct
-    format: percent
-    synonyms: ["leads month over month"]
-  leads_ytd:
-    type: cumulative
-    label: "Leads YTD"
-    description: "Year-to-date running total of new leads."
-    measure: lead_count
-    window: ytd
+  # leads_wow_pct, leads_mom_pct and leads_ytd used to live here. Week-over-week and
+  # year-to-date are properties of a question, not of a metric, so they are now intent
+  # modifiers (`compare`, `accumulate`) that every metric can carry — including the ratios
+  # and derived metrics a comparison metric could never wrap. See app/query/intent.py.
+
   # Intake funnel — leads reaching each milestone, and the conversion rates.
   vouchers:
     label: "Vouchers"
@@ -180,6 +161,10 @@ metrics:
     measures: ["voucher_reached"]
     expression: "voucher_reached * case_fee"
     format: currency
+    # Linear in its one measure, so a year's revenue is the sum of its weeks. Inference
+    # cannot see that through a formula, so it is declared — this is what makes YTD revenue
+    # expressible (docs/status.md, D4's KPI row).
+    additive: true
     synonyms: ["revenue vouchers"]
   voucher_rate:
     type: ratio

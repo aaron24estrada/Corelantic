@@ -38,23 +38,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/metrics/{metric_name}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Get Metric */
-        get: operations["metrics-get_metric"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/api/v1/nlq/ask": {
         parameters: {
             query?: never;
@@ -72,10 +55,45 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/query": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Run Query
+         * @description Answer one question expressed in registry vocabulary.
+         *
+         *     The body is an intent, never SQL: names are checked against the registry and values are
+         *     bound as parameters, so a caller cannot widen what it is allowed to read. The deterministic
+         *     twin of /nlq/ask, which reaches this same engine through a planned intent.
+         */
+        post: operations["query-run_query"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /**
+         * Accumulation
+         * @description A running total that restarts at the beginning of each ``reset`` period.
+         *
+         *     Month-to-date is ``reset=month``; year-to-date is ``reset=year``. Only meaningful for a
+         *     metric whose values may be summed across buckets — see ``MetricBase.additive``.
+         */
+        Accumulation: {
+            /** @description The period the running total restarts within. */
+            reset: components["schemas"]["Grain"];
+        };
         /** AskRequest */
         AskRequest: {
             /**
@@ -86,8 +104,6 @@ export interface components {
         };
         /** AskResponse */
         AskResponse: {
-            /** @description The structured intent the model planned from it. */
-            intent: components["schemas"]["QueryIntent"];
             /**
              * Narrative
              * @description Short narrative grounded strictly in the rows.
@@ -98,14 +114,68 @@ export interface components {
              * @description The question that was asked.
              */
             question: string;
-            /**
-             * Rows
-             * @description Result rows the intent produced.
-             */
-            rows: {
-                [key: string]: unknown;
-            }[];
+            /** @description Rows, their column schema, and the intent the model actually ran. */
+            result: components["schemas"]["ResultSet"];
         };
+        /** Column */
+        Column: {
+            /** @description How to format the value; absent for periods and dimensions. */
+            format?: components["schemas"]["MetricFormat"] | null;
+            /**
+             * Label
+             * @description Human-readable heading.
+             */
+            label: string;
+            /**
+             * Name
+             * @description Key this column takes in every row.
+             */
+            name: string;
+            /** @description What the column is for: an axis, a value, a change. */
+            role: components["schemas"]["ColumnRole"];
+        };
+        /**
+         * ColumnRole
+         * @enum {string}
+         */
+        ColumnRole: "period" | "dimension" | "metric" | "previous" | "delta";
+        /**
+         * Comparison
+         * @description Measure each bucket against the previous one.
+         *
+         *     There is no period field: ``grain`` already says what a period is. Week-over-week is
+         *     ``grain=week`` with a comparison, month-over-month is ``grain=month``. Year-over-year at
+         *     monthly grain would be ``lag(value, 12)`` — an offset this shape admits the day something
+         *     needs it, and nothing does yet.
+         */
+        Comparison: {
+            /**
+             * Kind
+             * @description Relative change ('pct') or absolute ('change'). Left unset it is resolved from the metric's format, because the honest default differs: a count moving from 400 to 480 rose 20 percent, while a rate moving from 20% to 24% rose 4 points. Calling that second one '20 percent' is true of the ratio and misleading about the business.
+             */
+            kind?: ("pct" | "change") | null;
+        };
+        /**
+         * DateRange
+         * @description An explicit, inclusive date window. Either bound may be open.
+         */
+        DateRange: {
+            /**
+             * End
+             * @description Latest date to include.
+             */
+            end?: string | null;
+            /**
+             * Start
+             * @description Earliest date to include.
+             */
+            start?: string | null;
+        };
+        /**
+         * Grain
+         * @enum {string}
+         */
+        Grain: "day" | "week" | "month" | "quarter" | "year";
         /** HTTPValidationError */
         HTTPValidationError: {
             /** Detail */
@@ -124,7 +194,7 @@ export interface components {
          * MetricFormat
          * @enum {string}
          */
-        MetricFormat: "number" | "currency" | "percent";
+        MetricFormat: "number" | "currency" | "percent" | "percent_point";
         /** MetricListResponse */
         MetricListResponse: {
             /**
@@ -132,21 +202,6 @@ export interface components {
              * @description Metrics defined in the semantic registry.
              */
             metrics: components["schemas"]["MetricSummary"][];
-        };
-        /** MetricResultResponse */
-        MetricResultResponse: {
-            /**
-             * Name
-             * @description The metric that was computed.
-             */
-            name: string;
-            /**
-             * Rows
-             * @description Result rows; grouped dimensions and the metric value per row.
-             */
-            rows: {
-                [key: string]: unknown;
-            }[];
         };
         /** MetricSummary */
         MetricSummary: {
@@ -170,6 +225,20 @@ export interface components {
         };
         /** QueryIntent */
         QueryIntent: {
+            /** @description Run a total that resets each period. Requires a grain. */
+            accumulate?: components["schemas"]["Accumulation"] | null;
+            /** @description Compare each bucket to the previous one. Requires a grain. */
+            compare?: components["schemas"]["Comparison"] | null;
+            /**
+             * Date Dimension
+             * @description Which date dimension to bucket/range on; inferred when the entity has one.
+             */
+            date_dimension?: string | null;
+            /**
+             * Date Range
+             * @description An explicit date window, or one named relative to today and resolved here.
+             */
+            date_range?: components["schemas"]["DateRange"] | components["schemas"]["RelativeRange"] | null;
             /**
              * Filters
              * @description Dimension name to the exact value it must equal.
@@ -177,6 +246,8 @@ export interface components {
             filters?: {
                 [key: string]: string;
             };
+            /** @description Bucket the date dimension by this grain (day/week/month/...). */
+            grain?: components["schemas"]["Grain"] | null;
             /**
              * Group By
              * @description Dimension names to group the metric by.
@@ -187,6 +258,33 @@ export interface components {
              * @description Registry name of the metric to compute.
              */
             metric: string;
+        };
+        /**
+         * RelativeRange
+         * @description A date window named relative to today, resolved once at the API boundary.
+         *
+         *     A closed enum rather than a free string so it lands in the OpenAPI schema: the agent can
+         *     only pick a window we implement, and the dashboard does not reimplement "last 90 days"
+         *     in TypeScript and disagree with us about whether it is inclusive.
+         * @enum {string}
+         */
+        RelativeRange: "last_7_days" | "last_30_days" | "last_90_days" | "last_365_days" | "month_to_date" | "year_to_date";
+        /** ResultSet */
+        ResultSet: {
+            /**
+             * Columns
+             * @description Describes each key in `rows`, in select order.
+             */
+            columns: components["schemas"]["Column"][];
+            /** @description The intent as it was actually run: a relative window resolved to explicit dates, the inferred date dimension named, the comparison's kind decided. A caption can state the window the chart truly covers. */
+            resolved_intent: components["schemas"]["QueryIntent"];
+            /**
+             * Rows
+             * @description One row per group.
+             */
+            rows: {
+                [key: string]: string | boolean | number | null;
+            }[];
         };
         /** ValidationError */
         ValidationError: {
@@ -261,39 +359,6 @@ export interface operations {
             };
         };
     };
-    "metrics-get_metric": {
-        parameters: {
-            query?: never;
-            header?: {
-                "X-Internal-Api-Key"?: string | null;
-            };
-            path: {
-                metric_name: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["MetricResultResponse"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
     "nlq-ask": {
         parameters: {
             query?: never;
@@ -316,6 +381,41 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["AskResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    "query-run_query": {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Internal-Api-Key"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["QueryIntent"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ResultSet"];
                 };
             };
             /** @description Validation Error */
