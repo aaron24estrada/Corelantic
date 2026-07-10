@@ -8,6 +8,11 @@ date-range *values* (bound as parameters, never rendered). Grain is a closed enu
 at compile time. Because we return a Core expression tree, value parameterization is
 structural: there is no place a value could be concatenated.
 
+``compile_query`` validates first (app/query/validate.py) and then compiles the resolved
+intent, so the compiler never asks whether a dimension is sliceable or which date a trend
+anchors on — those are settled. Its own registry lookups stay: reaching one of *their*
+failures means the registry disagrees with itself, which is our bug, not the caller's.
+
 A metric aggregates one fact entity, but its group-by dimensions may live on other
 entities. ``_build_plan`` finds the join path from the fact entity to each and builds an
 aliased, joined FROM; every column is then referenced through its entity's alias
@@ -34,11 +39,11 @@ from sqlalchemy import (
 )
 from sqlalchemy.sql.selectable import FromClause, NamedFromClause, Subquery
 
-from app.query.errors import DateDimensionError, FilteredMeasureConflictError
 from app.query.formula import build_formula, safe_divide
 from app.query.intent import QueryIntent
 from app.query.time import DateBucket, DateRange, Grain
-from app.semantic.errors import JoinFanOutError, NoJoinPathError
+from app.query.validate import ResolvedIntent, validate_intent
+from app.semantic.errors import JoinFanOutError
 from app.semantic.joins import JoinStep, find_join_path
 from app.semantic.models import (
     Aggregation,
@@ -72,22 +77,25 @@ class _Plan:
 
 
 def compile_query(intent: QueryIntent, registry: SemanticRegistry) -> Select[Any]:
-    metric = registry.metric(intent.metric)
+    return _compile_resolved(validate_intent(intent, registry), registry)
+
+
+def _compile_resolved(resolved: ResolvedIntent, registry: SemanticRegistry) -> Select[Any]:
+    metric = registry.metric(resolved.intent.metric)
     base = resolve_metric_entity(metric, registry)
 
     if isinstance(metric, (ComparisonMetric, CumulativeMetric)):
-        return _compile_temporal(metric, intent, base, registry)
-    return _compile_aggregate(metric, intent, base, registry)
+        return _compile_temporal(metric, resolved, base, registry)
+    return _compile_aggregate(metric, resolved, base, registry)
 
 
 def _compile_aggregate(
-    metric: Metric, intent: QueryIntent, base: str, registry: SemanticRegistry
+    metric: Metric, resolved: ResolvedIntent, base: str, registry: SemanticRegistry
 ) -> Select[Any]:
+    intent = resolved.intent
     group_dimensions = [registry.dimension(name) for name in intent.group_by]
     filter_dimensions = {name: registry.dimension(name) for name in intent.filters}
-    date_dimension = None
-    if intent.grain is not None or intent.date_range is not None:
-        date_dimension = _resolve_date_dimension(intent, base, registry)
+    date_dimension = resolved.date_dimension
 
     references = _references(
         metric, group_dimensions, list(filter_dimensions.values()), date_dimension, registry
@@ -117,14 +125,17 @@ def _compile_aggregate(
 
 def _compile_temporal(
     metric: ComparisonMetric | CumulativeMetric,
-    intent: QueryIntent,
+    resolved: ResolvedIntent,
     base: str,
     registry: SemanticRegistry,
 ) -> Select[Any]:
+    intent = resolved.intent
     measure = registry.measure(metric.measure)
     filter_dimensions = {name: registry.dimension(name) for name in intent.filters}
     group_dimensions = [registry.dimension(name) for name in intent.group_by]
-    date_dimension = _resolve_date_dimension(intent, base, registry)
+    # A temporal metric always anchors on a date; validate_intent resolved which one.
+    date_dimension = resolved.date_dimension
+    assert date_dimension is not None
 
     references = _references(
         metric, group_dimensions, list(filter_dimensions.values()), date_dimension, registry
@@ -170,27 +181,16 @@ def _references(
         if column_name is not None:
             references[entity].add(column_name)
 
-    sliced = [*group_dimensions, *filter_dimensions]
     for name in measure_names(metric):
         measure = registry.measure(name)
         add(measure.entity, measure.column)
         if measure.filter is not None:
             add(measure.entity, measure.filter.column)
-            _reject_slicing_a_filtered_column(metric, measure, sliced)
-    for dimension in sliced:
+    for dimension in (*group_dimensions, *filter_dimensions):
         add(dimension.entity, dimension.column)
     if date_dimension is not None:
         add(date_dimension.entity, date_dimension.column)
     return references
-
-
-def _reject_slicing_a_filtered_column(
-    metric: Metric, measure: Measure, sliced: list[Dimension]
-) -> None:
-    assert measure.filter is not None
-    for dimension in sliced:
-        if dimension.entity == measure.entity and dimension.column == measure.filter.column:
-            raise FilteredMeasureConflictError(metric.name, dimension.name)
 
 
 def _build_plan(base: str, references: dict[str, set[str]], registry: SemanticRegistry) -> _Plan:
@@ -202,8 +202,11 @@ def _build_plan(base: str, references: dict[str, set[str]], registry: SemanticRe
     for entity in list(columns):
         for step in find_join_path(base, entity, registry):
             if step.fans_out:
-                # Joining before aggregation would multiply the fact rows and inflate the
-                # metric; reject rather than return silently-wrong numbers.
+                # Unreachable through compile_query: validate_intent refuses a fan-out
+                # dimension first, with a 422 that names the alternatives. Kept because the
+                # cost of being wrong here is silently inflated numbers, not an exception —
+                # joining before aggregation multiplies the fact rows. A 500 is the right
+                # answer if this ever fires: the validator and the planner disagree.
                 raise JoinFanOutError(step.from_entity, step.to_entity)
             key = (step.from_entity, step.from_column, step.to_entity, step.to_column)
             if key not in seen:
@@ -316,54 +319,6 @@ def _bucket_grain(metric: ComparisonMetric | CumulativeMetric, intent: QueryInte
     if isinstance(metric, ComparisonMetric):
         return _PERIOD_GRAIN[metric.period]
     return intent.grain or Grain.DAY
-
-
-def _joinable_without_fan_out(base: str, entity: str, registry: SemanticRegistry) -> bool:
-    """Whether ``entity`` can be joined to ``base`` without multiplying the base's rows."""
-
-    if entity == base:
-        return True
-    try:
-        steps = find_join_path(base, entity, registry)
-    except NoJoinPathError:
-        return False
-    return not any(step.fans_out for step in steps)
-
-
-def _resolve_date_dimension(
-    intent: QueryIntent, base: str, registry: SemanticRegistry
-) -> Dimension:
-    """The date dimension to bucket and range on: the base's own, or one safely joined in.
-
-    A funnel metric lives on ``stages`` but is trended by the lead's intake date on
-    ``cases`` — reachable many-to-one, so joining it neither fans out nor changes the
-    aggregate. A path that *would* fan out is refused: it would inflate the measure.
-    """
-
-    if intent.date_dimension is not None:
-        dimension = registry.dimension(intent.date_dimension)  # UnknownDimensionError if absent
-        if dimension.date_role is None:
-            raise DateDimensionError(base, f"{dimension.name!r} is not a date dimension")
-        if not _joinable_without_fan_out(base, dimension.entity, registry):
-            raise DateDimensionError(
-                base, f"{dimension.name!r} is on {dimension.entity!r}, not safely joinable"
-            )
-        return dimension
-
-    reachable = [
-        d
-        for d in registry.dimensions.values()
-        if d.date_role is not None and _joinable_without_fan_out(base, d.entity, registry)
-    ]
-    if len(reachable) == 1:
-        return reachable[0]
-    if not reachable:
-        raise DateDimensionError(base, "no date dimension is reachable")
-    # Never guess between date roles (lead vs referral vs stage): which one a question means
-    # changes the answer, so the intent must say. Preferring the base's own would silently
-    # re-anchor a trend the day an entity gains a date of its own.
-    names = sorted(d.name for d in reachable)
-    raise DateDimensionError(base, f"several date dimensions {names}; name one")
 
 
 def _apply_where(

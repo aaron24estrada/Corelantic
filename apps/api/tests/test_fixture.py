@@ -7,10 +7,9 @@ import pytest
 from app.adapters.data.fixture import FixtureDataSource
 from app.core.config import get_settings
 from app.query.compiler import compile_query
-from app.query.errors import DateDimensionError
+from app.query.errors import DateDimensionError, IncompatibleDimensionError
 from app.query.intent import QueryIntent
 from app.query.time import DateRange, Grain
-from app.semantic.errors import JoinFanOutError, NoJoinPathError
 from app.semantic.registry import load_registry
 
 _CHANNELS = {
@@ -120,8 +119,9 @@ def test_revenue_values_vouchers_at_the_case_fee(
 
 def test_lead_metric_grouped_by_stage_is_rejected(registry: Any) -> None:
     # cases → stages is one_to_many; joining would inflate the lead count, so refuse it.
-    with pytest.raises(JoinFanOutError):
+    with pytest.raises(IncompatibleDimensionError) as caught:
         compile_query(QueryIntent(metric="new_leads", group_by=["stage_name"]), registry)
+    assert sorted(caught.value.allowed) == ["channel", "lead_date", "state", "status"]
 
 
 def _value(source: FixtureDataSource, metric: str, registry: Any) -> float:
@@ -192,7 +192,7 @@ def test_agent_conversion_is_pooled_not_a_mean_of_rates(
 def test_call_metrics_cannot_reach_the_lead_tables(registry: Any) -> None:
     # zoom_calls declares no join, on purpose: reaching cases would make lead_date compete
     # with call_date and force every call trend to name a date dimension.
-    with pytest.raises(NoJoinPathError):
+    with pytest.raises(IncompatibleDimensionError):
         compile_query(QueryIntent(metric="total_calls", group_by=["channel"]), registry)
     with pytest.raises(DateDimensionError):
         compile_query(
