@@ -202,8 +202,11 @@ def _build_plan(base: str, references: dict[str, set[str]], registry: SemanticRe
     for entity in list(columns):
         for step in find_join_path(base, entity, registry):
             if step.fans_out:
-                # Joining before aggregation would multiply the fact rows and inflate the
-                # metric; reject rather than return silently-wrong numbers.
+                # Unreachable through compile_query: validate_intent refuses a fan-out
+                # dimension first, with a 422 that names the alternatives. Kept because the
+                # cost of being wrong here is silently inflated numbers, not an exception —
+                # joining before aggregation multiplies the fact rows. A 500 is the right
+                # answer if this ever fires: the validator and the planner disagree.
                 raise JoinFanOutError(step.from_entity, step.to_entity)
             key = (step.from_entity, step.from_column, step.to_entity, step.to_column)
             if key not in seen:
