@@ -26,6 +26,51 @@ It was 30 until week-over-week and year-to-date stopped being *metrics*. `leads_
 
 `make check` green: 223 tests. `make validate` green: 5 entities, 19 measures, 14 dimensions, 25 metrics, 1 constant across two registry files.
 
+## The API in one page
+
+Four routes. `/health` is open; the rest need the internal secret (`x-internal-api-key`).
+
+**`GET /api/v1/catalog`** — the vocabulary, and what may be asked of it. Read it before composing an intent. Per metric: `groupable_dimensions` (valid for `group_by` *and* `filters`), `date_dimensions`, and `supports: {compare, accumulate}`. Per dimension: `members`, when the value set is closed. Plus `grains`, `relative_ranges`, and `accumulation_resets` — the calendar rule saying which resets each grain may use.
+
+It bounds the **vocabulary**, not the *shape* of a request. Three refusals remain reachable from catalog-only names, because each is a property of the question: `compare` with `accumulate`, grouping by the very date `grain` buckets, and a running total starting mid-period.
+
+**`POST /api/v1/query`** — an intent in, a `ResultSet` out.
+
+```jsonc
+// request
+{"metric": "voucher_rate", "grain": "week", "compare": {}, "date_range": "last_90_days"}
+
+// response
+{
+  "columns": [
+    {"name": "period",       "role": "period",   "label": "Period"},
+    {"name": "voucher_rate", "role": "metric",   "label": "Voucher rate %", "format": "percent"},
+    {"name": "previous",     "role": "previous", "label": "Previous voucher rate %", "format": "percent"},
+    {"name": "delta",        "role": "delta",    "label": "Change", "format": "percent_point"}
+  ],
+  "rows": [{"period": "2026-07-06", "voucher_rate": 0.2717, "previous": 0.2558, "delta": 0.0159}],
+  "resolved_intent": {"date_range": {"start": "2026-04-12", "end": "2026-07-10"}, "compare": {"kind": "change"}, /* … */}
+}
+```
+
+Three things that shape the frontend:
+
+- **`columns` describes the rows.** Roles and formats come from the API, so a chart, a table and a narrative all read one description. Never re-derive them from the intent.
+- **`resolved_intent` is the request as actually run** — relative window turned into explicit dates, inferred date dimension named, comparison's `kind` decided. A caption can state the window the chart truly covers.
+- **`delta` of a percent metric is in points, not percent.** 20% → 24% rose four points. The API picks that from the metric's format and says so via `format: "percent_point"`.
+
+**Every bad intent is a 422**, never a 404 or a 500, with a stable `code`, the `field` at fault, and `allowed` — the vocabulary that *would* have worked:
+
+```json
+{"code": "incompatible_dimension", "field": "group_by",
+ "detail": "Metric 'voucher_rate' cannot be sliced by dimension 'stage_name': the metric's own measure already filters on that column, so every other group would aggregate to nothing.",
+ "allowed": ["channel", "lead_date", "state", "status"]}
+```
+
+That `allowed` list is the point: the agent repairs its intent instead of retrying blind (E2), and `ErrorState` names the options instead of saying "failed" (D2).
+
+**`POST /api/v1/nlq/ask`** — question in, the same `ResultSet` plus a narrative. Blocked on E1.
+
 ## Database access (O-1 — resolved)
 
 Read-only access to KRW's warehouse, granted 2026-07-10.
@@ -58,30 +103,47 @@ Every metric definition was **verified against the live tables**, not inferred. 
 - **Spend + Referrals (#37) — the only thing between us and the full dashboard.** `marketing_budget` (spend → **ROAS**, **Cost per Lead**) and `referral_leads` (cancer type, referral firm, fees) are **not in `gold_tspot`**. The `bronze_marketing`, `bronze_finance`, and `*_lawruler` schemas exist in the same database but this login cannot read them. Both originate as spreadsheets landed into the warehouse, so this is most likely an access grant, not a connector. Owner: **Imran**.
 - **Deployed auth** — service principal for headless Azure SQL access (above). Owner: Imran.
 - **O-4 — auth.** Reuse Entra vs. Corelantic's own IdP. Owner: you/Dom. Blocks the web login.
-- **O-5 — chart format.** ECharts vs. whatever Imran's agent emits. Owner: Imran. Blocks the shared `<Chart>` contract.
 - **E1 — Anthropic API key.** Blocks the NL agent (the planner can be built and tested against a fake).
 - **O-3 — deploy target** (Azure vs GCP). Parked for Dom; not blocking.
+
+**O-5 is resolved (2026-07-10): Apache ECharts.** We stopped waiting for Imran to confirm his agent's format, because waiting inverted D-6 — `ChartSpec` is a seam *we* own, and a differently-shaped agent output is an adapter at the boundary, not a redesign. D3 and D6 are unblocked; the reasoning is in [`decisions.md`](./decisions.md), D-8.
 
 ## Next steps
 
 Unblocked, highest value first:
 
-1. **E2 — `plan_intent`** (question → validated intent), buildable against the `LLMProvider` interface with a fake, run against the fixture. `GET /catalog` gives the planner its vocabulary; the 422 body's `allowed` list lets it repair a bad intent instead of retrying blind.
-2. **D2 / D4 / D5** — reusable states + `<Chart>`, the KPI row, core visuals. (D3/D6 gated on O-5.) D4's KPI tiles are now one request each: `compare` returns the series, the value and the delta together.
-3. **A1 — CI running `make check` on PRs.** Note CI will need `msodbcsql18` + `unixodbc-dev` to build `pyodbc`. The suite is hermetic now (#48): it ignores `.env` and every `CORELANTIC_API_*` variable, so CI can set whatever it likes.
-4. **#52 — calendar spine.** `compare` uses `LAG`, which reads the previous *populated* bucket, so a fully empty week is skipped rather than shown as a drop to zero.
-5. **#53 — accumulation vs display window.** A running total must start on its reset boundary, so **D6's date-range control will 422 a "Revenue YTD" tile** the moment the picked range doesn't start on 1 January. Fix before D6, not after.
+1. **D3 + D2 as one PR.** The `ChartSpec` type authored in the API contract so it flows through OpenAPI into the generated TS client (one shape for the dashboard *and* an agent answer), `<Chart>` wrapping ECharts with the theme applied in exactly one place, plus `ErrorState` / `EmptyState` / loading. A spec with no renderer is unverified; a renderer with no spec is meaningless. Then D4 and D5 are mostly assembly.
+2. **E2 — `plan_intent`** (question → validated intent), buildable against the `LLMProvider` interface with a fake, run against the fixture. `GET /catalog` gives the planner its vocabulary; the 422 body's `allowed` list lets it repair a bad intent instead of retrying blind. Needs no API key.
+3. **A1 — CI running `make check` on PRs.** CI will need `msodbcsql18` + `unixodbc-dev` to build `pyodbc`. The suite is hermetic now (#48): it ignores `.env` and every `CORELANTIC_API_*` variable, so CI can set whatever it likes.
+4. **#53 — accumulation vs display window. Fix before D6, not after.** A running total must start on its reset boundary, so D6's date-range control will 422 a "Revenue YTD" tile the moment the picked range doesn't start on 1 January.
+5. **#52 — calendar spine.** `compare` uses `LAG`, which reads the previous *populated* bucket, so a fully empty week is skipped rather than shown as a drop to zero. Harmless on dense data; it bites the moment D5 cross-filters a weekly trend down to a low-volume channel.
 
-Gated: spend/referrals registry (#37), NL agent wiring (E1), auth (O-4), chart contract (O-5).
+Gated: spend/referrals registry (#37), NL agent wiring (E1), auth (O-4).
+
+## Three traps waiting for the frontend
+
+Read these before opening `apps/web`.
+
+1. **The chart palette is five greys.** `--chart-1..5` in `apps/web/src/app/globals.css` are deliberate placeholders from D1, left neutral because O-5 was open. Wire `<Chart>` to them as they are and a multi-series chart renders five indistinguishable lines — and nothing looks broken enough to notice. D2 owns replacing them; use the `dataviz` guidance and contrast-check them the way the theme was.
+2. **D4's KPI row asks for five tiles and three exist.** New leads, Voucher rate and Revenue are live. **Marketing Spend and ROAS are `marketing_budget`** (#37, Imran's). Either ship three and leave two gaps, or re-pick five from the 25 — the telephony and agent metrics are pure upside and nobody at KRW has seen them. A product call, not an engineering one.
+3. **A KPI tile is one request, not two.** `POST /query` with `grain` + `compare` returns `period`, the value, `previous` and `delta` together, over one window. Do not fetch a metric and its delta separately; that was the old design and it could not guarantee both covered the same days.
+
+"Recent intakes" (D5) is the one visual with no metric behind it — it wants raw rows, not an aggregate, and no endpoint returns those.
 
 ## Working agreements that paid off
 
 - **Probe the database before authoring a metric.** Three definitions that looked obvious from column names were wrong by 4×, 1000×, and 2×. The probes cost minutes; the errors would have been invisible on a dashboard.
-- **Run a codex architectural pass on every PR.** It caught five bugs that would have shipped silently: a Sunday-boundary week bucket in SQL Server, `LAG` reading across a NULL period, a registry constant shadowing a measure, a derived formula selecting an unaggregated literal, and a dark-mode focus ring that vanished while a button was held down. Redirect stdin or it hangs forever on `Reading additional input from stdin...`, and never pipe it through `tail` — `tail` buffers until the stream closes, so a hung run and a working one look identical:
+- **Run a codex architectural pass on every PR — and on the *plan*, before writing code.** Reviewing the plan for the semantic-API rework caught a sequencing bug (flipping `SemanticError` to 500 while a route still raised it from a path param) and a filtered-measure case we had missed, before either existed as a diff. Reviewing diffs has caught seven bugs that would have shipped silently: a Sunday-boundary week bucket in SQL Server, `LAG` reading across a NULL period, a registry constant shadowing a measure, a derived formula selecting an unaggregated literal, a dark-mode focus ring that vanished while a button was held down, a running total that started mid-period under the same label as an honest one, and a derived metric that could declare itself additive while dividing by a measure.
+
+  Redirect stdin or it hangs forever on `Reading additional input from stdin...`, and never pipe it through `tail` — `tail` buffers until the stream closes, so a hung run and a working one look identical:
 
   ```bash
   codex exec --sandbox read-only --skip-git-repo-check "$(cat prompt.txt)" < /dev/null > codex.log 2>&1
   ```
+
+  Two shell traps around it: `pkill -f "codex exec"` matches the agent's own shell and kills the session — `kill` by PID. And a triple-backtick fence inside `$(cat <<'EOF')` unbalances bash's legacy backtick parsing, so `gh issue create --body-file` beats `--body "$(…)"`.
+- **Probe with a value that changes behaviour.** The hermetic-tests fix (#48) looked complete under `.env`, which only sets `data_source=fixture` — something the tests tolerate. Exporting `CORELANTIC_API_SEMANTIC_DIR=/tmp/nope` turned 24 tests red and exposed a fixture-ordering bug (pytest builds module-scoped fixtures before function-scoped autouse ones). A probe that cannot fail proves nothing.
+- **Verify a claim numerically before building on it.** The whole intent-modifier redesign rested on "a ratio can be recomputed per bucket and then compared." That was checked against 185 weekly buckets of a hand-computed series *before* any code was written, and the check is now a test. The per-bucket mean (0.2414) differs from the whole-period ratio (0.2434) — which is the proof it is a genuine recomputation and not a reweighting, and the same mean-of-ratios trap [`data-model.md`](./data-model.md) records for `agent_stats`.
 - **The test suite reads nothing from the machine.** `Settings` loads `.env` *and* every `CORELANTIC_API_*` variable, so tests inherited whatever a developer or CI runner had set: some failed for people who followed the setup docs, and the rest passed only because someone's file held the value they asserted. An autouse fixture strips both channels, with canary tests that fail loudly if it ever stops (#48).
 - **The fixture mirrors the real schema.** One registry serves both, so a fixture test is a real test. Fixture reproduces the source: 86,973 leads, 38.3% no-geo, voucher rate 24.1%, answer rate 80.86%, agent conversion 4.44%.
 

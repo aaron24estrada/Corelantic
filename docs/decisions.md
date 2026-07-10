@@ -18,7 +18,11 @@ Last updated 2026-07-03. Captures what's settled, what's still open, and what's 
 
 **D-7 — Structured query intent, not LLM-authored SQL.** The model plans queries from the semantic registry and emits a validated intent object; we compile the SQL. Rationale: safety, metric correctness, and debuggability. A guarded raw-SQL fallback is left as a later option, not built now.
 
-**D-8 — ECharts as the single chart-spec contract.** Both the dashboard and the agent render through one chart component and one spec shape, so the two surfaces look identical. Aligns with Imran's existing ECharts-based agent output.
+**D-8 — Apache ECharts as the single chart-spec contract.** *Confirmed 2026-07-10, closing O-5.* Both the dashboard and the agent render through one chart component and one spec shape, so the two surfaces look identical.
+
+We stopped waiting on Imran to confirm his agent's format, because waiting inverted D-6. `ChartSpec` is one of the four seams **we** own; which library it renders through is an implementation detail *behind* that seam, and an agent that emits some other shape is an adapter at the boundary — the same shape as the `DataSource` adapter we have now written twice. The consumer did not even exist yet: the agent is blocked on E1. Four issues were held hostage to a format question about a component nobody had written.
+
+The spec is cheap to build because `POST /query` returns a `ResultSet` whose columns carry a `role` (period / dimension / metric / previous / delta) and a `format` (number / currency / percent / percent_point). A chart spec is a pure function of that result plus the intent that produced it, so the deterministic dashboard and an agent answer reach `<Chart>` by the same path.
 
 ## Open questions (need answers before or during the build)
 
@@ -30,7 +34,7 @@ Last updated 2026-07-03. Captures what's settled, what's still open, and what's 
 
 **O-4 — Is this cut single-tenant KRW only, or must it already be sellable to non-Microsoft firms?** If the latter, D-4 changes (we'd want our own IdP now, not just Entra). Current assumption: single-tenant KRW, Entra is fine. Confirm with Aaron/Dom.
 
-**O-5 — Chart library confirmation.** ECharts is proposed to match Imran's agent output. If his agent standardized on a different spec (e.g. Plotly/Vega), we align to that instead — the point is one shared contract. Confirm with Imran.
+**O-5 — Chart library confirmation.** *Resolved 2026-07-10 — see D-8.* We use [Apache ECharts](https://echarts.apache.org). Imran's agent no longer gates it.
 
 ## Explicitly deferred (not now, but the design leaves room)
 
