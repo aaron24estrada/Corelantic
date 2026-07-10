@@ -11,6 +11,8 @@ from app.api.middleware import request_context_middleware
 from app.api.router import api_router
 from app.core.config import get_settings
 from app.core.logging import configure_logging
+from app.query.errors import IntentError
+from app.schemas.error import ErrorResponse
 from app.semantic.errors import SemanticError
 
 logger = logging.getLogger("corelantic.error")
@@ -32,19 +34,31 @@ def create_app() -> FastAPI:
     app.middleware("http")(request_context_middleware)
     app.include_router(api_router)
 
+    def _body(response: ErrorResponse, status_code: int) -> JSONResponse:
+        return JSONResponse(status_code=status_code, content=response.model_dump())
+
+    @app.exception_handler(IntentError)
+    async def _handle_intent_error(_: Request, exc: IntentError) -> JSONResponse:
+        # The intent named vocabulary the model does not offer. Unprocessable, not missing —
+        # and `allowed` says what would have worked, so the caller can repair rather than retry.
+        return _body(
+            ErrorResponse(detail=str(exc), code=exc.code, field=exc.field, allowed=exc.allowed),
+            422,
+        )
+
     @app.exception_handler(SemanticError)
     async def _handle_semantic_error(_: Request, exc: SemanticError) -> JSONResponse:
-        return JSONResponse(status_code=404, content={"detail": str(exc)})
+        return _body(ErrorResponse(detail=str(exc)), 404)
 
     @app.exception_handler(ProviderNotConfiguredError)
     async def _handle_not_configured(_: Request, exc: ProviderNotConfiguredError) -> JSONResponse:
-        return JSONResponse(status_code=503, content={"detail": str(exc)})
+        return _body(ErrorResponse(detail=str(exc)), 503)
 
     @app.exception_handler(Exception)
     async def _handle_unexpected(_: Request, exc: Exception) -> JSONResponse:
         # Log with the traceback (carrying the request id); never leak internals to the client.
         logger.exception("unhandled exception")
-        return JSONResponse(status_code=500, content={"detail": "Internal server error."})
+        return _body(ErrorResponse(detail="Internal server error."), 500)
 
     return app
 

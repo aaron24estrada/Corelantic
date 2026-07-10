@@ -5,16 +5,17 @@ import pytest
 from sqlalchemy import Select
 
 from app.query.compiler import compile_query
-from app.query.errors import DateDimensionError, FilteredMeasureConflictError
+from app.query.errors import (
+    DateDimensionError,
+    DimensionNotDefinedError,
+    IncompatibleDimensionError,
+    MetricNotDefinedError,
+)
 from app.query.intent import QueryIntent
 from app.query.time import DateRange, Grain
 from app.semantic.errors import (
     InvalidFormulaError,
-    JoinFanOutError,
     MixedEntityError,
-    NoJoinPathError,
-    UnknownDimensionError,
-    UnknownMetricError,
 )
 from app.semantic.models import (
     Aggregation,
@@ -263,14 +264,25 @@ def test_filter_on_joined_entity_joins() -> None:
 
 def test_dimension_with_no_join_path_raises() -> None:
     # cases has no join edge to leads.
-    with pytest.raises(NoJoinPathError):
+    with pytest.raises(IncompatibleDimensionError) as caught:
         compile_query(QueryIntent(metric="new_leads", group_by=["attorney"]), _registry())
+    assert "not related" in str(caught.value)
+    assert "attorney" not in caught.value.allowed
 
 
 def test_one_to_many_join_is_rejected_to_avoid_fan_out() -> None:
     # leads → stages is one-to-many; joining it would inflate count(*), so reject it.
-    with pytest.raises(JoinFanOutError):
+    with pytest.raises(IncompatibleDimensionError) as caught:
         compile_query(QueryIntent(metric="new_leads", group_by=["stage_name"]), _registry())
+    assert "inflate" in str(caught.value)
+
+
+def test_a_rejected_dimension_names_the_ones_that_would_have_worked() -> None:
+    # `allowed` is what lets the agent repair its intent instead of retrying blind.
+    with pytest.raises(IncompatibleDimensionError) as caught:
+        compile_query(QueryIntent(metric="new_leads", group_by=["stage_name"]), _registry())
+    assert "state" in caught.value.allowed
+    assert caught.value.field == "group_by"
 
 
 def test_fact_to_dimension_join_is_left_outer() -> None:
@@ -319,11 +331,14 @@ def test_filtered_count_of_rows_counts_a_case() -> None:
 def test_slicing_by_a_filtered_column_is_rejected() -> None:
     # "vouchers by stage" is malformed: the filter pins the stage, so every other group is
     # empty. Refuse it rather than answer 100% / 0%.
-    with pytest.raises(FilteredMeasureConflictError):
+    with pytest.raises(IncompatibleDimensionError) as caught:
         compile_query(QueryIntent(metric="vouchers", group_by=["stage_name"]), _registry())
+    assert "aggregate to nothing" in str(caught.value)
+
     filtered = QueryIntent(metric="vouchers", filters={"stage_name": "Voucher"})
-    with pytest.raises(FilteredMeasureConflictError):
+    with pytest.raises(IncompatibleDimensionError) as caught:
         compile_query(filtered, _registry())
+    assert caught.value.field == "filters"
 
 
 def test_filtered_measure_can_still_be_sliced_by_another_dimension() -> None:
@@ -503,13 +518,15 @@ def test_filter_value_is_bound_never_interpolated() -> None:
 
 
 def test_unknown_metric_raises() -> None:
-    with pytest.raises(UnknownMetricError):
+    with pytest.raises(MetricNotDefinedError) as caught:
         compile_query(QueryIntent(metric="missing"), _registry())
+    assert "new_leads" in caught.value.allowed
 
 
 def test_unknown_dimension_raises() -> None:
-    with pytest.raises(UnknownDimensionError):
+    with pytest.raises(DimensionNotDefinedError) as caught:
         compile_query(QueryIntent(metric="new_leads", group_by=["missing"]), _registry())
+    assert caught.value.field == "group_by"
 
 
 def test_metric_mixing_entities_raises() -> None:
