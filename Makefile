@@ -36,6 +36,7 @@ typecheck:
 
 test:
 	uv run --directory $(API) pytest
+	npm test --prefix $(WEB)
 
 # Validate the semantic registry (references, formulas, joins, synonyms, duplicates).
 validate:

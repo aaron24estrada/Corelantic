@@ -32,6 +32,9 @@
   --color-chart-3: var(--chart-3);
   --color-chart-4: var(--chart-4);
   --color-chart-5: var(--chart-5);
+  --color-chart-6: var(--chart-6);
+  --color-chart-7: var(--chart-7);
+  --color-chart-8: var(--chart-8);
   --color-sidebar: var(--sidebar);
   --color-sidebar-foreground: var(--sidebar-foreground);
   --color-sidebar-primary: var(--sidebar-primary);
@@ -108,13 +111,36 @@
     inset 0 1px 0 rgb(255 255 255 / 0.18);
   --elevation-button-pressed: 0 1px 1px rgb(0 0 0 / 0.06);
 
-  /* Unused until D2 settles the categorical palette (docs O-5). Defined so a
-     `shadcn add` never resolves a chart or sidebar token to nothing. */
-  --chart-1: oklch(0.87 0 0);
-  --chart-2: oklch(0.556 0 0);
-  --chart-3: oklch(0.439 0 0);
-  --chart-4: oklch(0.371 0 0);
-  --chart-5: oklch(0.269 0 0);
+  /* Eight categorical slots, computed and not chosen. A series' colour is its slot,
+     and the slot belongs to the entity — so a chart filtered down to three channels
+     does not repaint them. Slot 1 is --primary, so a single-series chart is brand blue.
+
+     The slot ORDER is the colourblind-safety mechanism, not decoration: it was picked
+     by enumerating all 5040 orderings (slot 1 pinned) and keeping the one that
+     maximises the worst adjacent Machado-2009 ΔE across BOTH modes at once. Adjacent
+     pairs are what matters — assignment never skips a slot, so only neighbours touch.
+
+     Verified with the dataviz skill's validator against our own card surfaces (#ffffff
+     light, #161618 dark — not the page). Both modes: lightness band, chroma floor, CVD
+     separation and contrast all PASS, no WARN. Worst adjacent ΔE 23.5 light / 23.7 dark,
+     against a target of 12. All eight clear 3:1 on their surface, so no series needs a
+     direct label to be legible.
+
+     Three traps these values encode, all of which look fine to the eye:
+       · #eda100 (the obvious yellow) is 2.17:1 on white. Darkened in-hue to #c38406.
+       · Darkening that yellow alone collapses green↔yellow to ΔE 9.4 — hence the reorder.
+       · #0a9a24 reads as a clean green and scores ΔE 1.4 against the yellow under
+         protanopia. Never eyeball a palette; run the script.
+
+     Dark is stepped for the dark surface, not flipped: same eight hues, own lightnesses. */
+  --chart-1: #0071e3; /* blue    — 4.70:1 */
+  --chart-2: #05a873; /* aqua    — 3.06:1 */
+  --chart-3: #c38406; /* yellow  — 3.17:1 */
+  --chart-4: #e34948; /* red     — 3.95:1 */
+  --chart-5: #dc709a; /* magenta — 3.08:1 */
+  --chart-6: #eb6834; /* orange  — 3.20:1 */
+  --chart-7: #4a3aa7; /* violet  — 8.56:1 */
+  --chart-8: #008300; /* green   — 4.95:1 */
   --sidebar: #ffffff;
   --sidebar-foreground: #1d1d1f;
   --sidebar-primary: #0071e3;
@@ -163,6 +189,18 @@
     0 2px 8px color-mix(in srgb, var(--primary) 40%, transparent),
     inset 0 1px 0 rgb(255 255 255 / 0.12);
   --elevation-button-pressed: 0 0 #0000;
+
+  /* The same eight hues, each stepped for the dark card. Green has to travel furthest:
+     #008300 sits below the dark band, and lightening it is also what keeps it clear of
+     the yellow under protanopia (ΔE 10.3 → 23.7). Contrast is measured on #161618. */
+  --chart-1: #0a84ff; /* blue    — 4.95:1 */
+  --chart-2: #199e70; /* aqua    — 5.31:1 */
+  --chart-3: #c98500; /* yellow  — 5.88:1 */
+  --chart-4: #e66767; /* red     — 5.59:1 */
+  --chart-5: #d55181; /* magenta — 4.58:1 */
+  --chart-6: #d95926; /* orange  — 4.65:1 */
+  --chart-7: #9085e9; /* violet  — 5.78:1 */
+  --chart-8: #3aa856; /* green   — 5.95:1 */
 
   --sidebar: #161618;
   --sidebar-foreground: #f5f5f7;

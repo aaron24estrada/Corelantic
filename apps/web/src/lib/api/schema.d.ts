@@ -72,9 +72,9 @@ export interface paths {
         put?: never;
         /**
          * Run Query
-         * @description Answer one question expressed in registry vocabulary.
+         * @description Answer one question expressed in registry vocabulary, and optionally draw it.
          *
-         *     The body is an intent, never SQL: names are checked against the registry and values are
+         *     The body carries an intent, never SQL: names are checked against the registry and values are
          *     bound as parameters, so a caller cannot widen what it is allowed to read. The deterministic
          *     twin of /nlq/ask, which reaches this same engine through a planned intent.
          */
@@ -126,6 +126,8 @@ export interface components {
         };
         /** AskResponse */
         AskResponse: {
+            /** @description The answer drawn, in the same shape the dashboard renders. Always null today: the orchestrator plans an intent but not yet a visual, so E3 populates it. The field is typed rather than absent so both surfaces share one contract and one <Chart>. */
+            chart?: components["schemas"]["ChartSpec"] | null;
             /**
              * Narrative
              * @description Short narrative grounded strictly in the rows.
@@ -234,6 +236,82 @@ export interface components {
              */
             relative_ranges: components["schemas"]["RelativeRange"][];
         };
+        /** ChartAxis */
+        ChartAxis: {
+            /** @description How to format tick labels; absent for categorical axes. */
+            format?: components["schemas"]["MetricFormat"] | null;
+            /**
+             * Label
+             * @description Axis heading.
+             */
+            label: string;
+        };
+        /**
+         * ChartRequest
+         * @description How the caller wants the answer drawn.
+         *
+         *     Deliberately a sibling of ``QueryIntent`` and never a field on it: an intent is
+         *     visual-independent (concepts.md §2), so `resolved_intent` must never echo a chart type back
+         *     and the agent's planner must never have to choose one to ask a question.
+         */
+        ChartRequest: {
+            /** @description The visual to render this result as. */
+            type: components["schemas"]["ChartType"];
+        };
+        /** ChartSeries */
+        ChartSeries: {
+            /**
+             * Data
+             * @description One value per entry in `categories`, in that order. `null` is a gap the renderer must break the line across, not a zero: a bucket with no rows, or the first bucket of a comparison, which has nothing before it.
+             */
+            data: (number | null)[];
+            /** @description How to format this series' values. */
+            format: components["schemas"]["MetricFormat"];
+            /**
+             * Name
+             * @description Legend entry: the metric's label, or a dimension member.
+             */
+            name: string;
+            /**
+             * Palette Index
+             * @description Zero-based categorical slot, fixed to the *entity* this series names and never to its rank or its position in this particular result. Cross-filtering a chart down to three of its channels must not repaint them, so the index is the member's position in the registry's declared `members` — a property of the model, not of the data. A comparison series repeats its primary's index.
+             */
+            palette_index: number;
+            /** @description Whether this is the metric or its earlier window. */
+            role: components["schemas"]["SeriesRole"];
+        };
+        /** ChartSpec */
+        ChartSpec: {
+            /**
+             * Categories
+             * @description The categorical axis: ISO period starts, or dimension members.
+             */
+            categories: string[];
+            /**
+             * Series
+             * @description One entry per line or bar group.
+             */
+            series: components["schemas"]["ChartSeries"][];
+            /**
+             * Subtitle
+             * @description The window actually covered, resolved from the intent. A caption, not a hint.
+             */
+            subtitle?: string | null;
+            /**
+             * Title
+             * @description The metric being drawn.
+             */
+            title: string;
+            type: components["schemas"]["ChartType"];
+            x: components["schemas"]["ChartAxis"];
+            y: components["schemas"]["ChartAxis"];
+        };
+        /**
+         * ChartType
+         * @description What to draw. Extending the spec is how a new visual arrives, never a new component.
+         * @enum {string}
+         */
+        ChartType: "line" | "bar";
         /** Column */
         Column: {
             /** @description How to format the value; absent for periods and dimensions. */
@@ -289,15 +367,41 @@ export interface components {
             start?: string | null;
         };
         /**
+         * ErrorResponse
+         * @description The one error body every handler returns.
+         *
+         *     ``code`` is stable and machine-readable; ``detail`` is for a human and may change.
+         *     ``allowed`` is what makes a 422 actionable — the agent re-plans from it and the UI names
+         *     the options — so it is present whenever the vocabulary that would have been accepted is
+         *     computable.
+         */
+        ErrorResponse: {
+            /**
+             * Allowed
+             * @description Values that would have been accepted for that field.
+             */
+            allowed?: string[] | null;
+            /**
+             * Code
+             * @description Stable machine-readable error code.
+             */
+            code?: string | null;
+            /**
+             * Detail
+             * @description Human-readable explanation. Never leaks internals.
+             */
+            detail: string;
+            /**
+             * Field
+             * @description The request field that was rejected.
+             */
+            field?: string | null;
+        };
+        /**
          * Grain
          * @enum {string}
          */
         Grain: "day" | "week" | "month" | "quarter" | "year";
-        /** HTTPValidationError */
-        HTTPValidationError: {
-            /** Detail */
-            detail?: components["schemas"]["ValidationError"][];
-        };
         /** HealthResponse */
         HealthResponse: {
             /**
@@ -367,6 +471,26 @@ export interface components {
             metric: string;
         };
         /**
+         * QueryRequest
+         * @description An intent, and optionally how to draw its answer.
+         *
+         *     ``chart`` is a sibling of the intent and never a field on it. An intent is a question and is
+         *     visual-independent (concepts.md §2); folding a chart type into it would echo presentation
+         *     back through ``resolved_intent`` and force the agent's planner to pick a visual in order to
+         *     ask anything at all.
+         */
+        QueryRequest: {
+            /** @description Omit for rows only; name a type to also get a `ChartSpec`. */
+            chart?: components["schemas"]["ChartRequest"] | null;
+            intent: components["schemas"]["QueryIntent"];
+        };
+        /** QueryResponse */
+        QueryResponse: {
+            /** @description Present exactly when the request asked for a chart. */
+            chart?: components["schemas"]["ChartSpec"] | null;
+            result: components["schemas"]["ResultSet"];
+        };
+        /**
          * RelativeRange
          * @description A date window named relative to today, resolved once at the API boundary.
          *
@@ -393,19 +517,11 @@ export interface components {
                 [key: string]: string | boolean | number | null;
             }[];
         };
-        /** ValidationError */
-        ValidationError: {
-            /** Context */
-            ctx?: Record<string, never>;
-            /** Input */
-            input?: unknown;
-            /** Location */
-            loc: (string | number)[];
-            /** Message */
-            msg: string;
-            /** Error Type */
-            type: string;
-        };
+        /**
+         * SeriesRole
+         * @enum {string}
+         */
+        SeriesRole: "primary" | "comparison";
     };
     responses: never;
     parameters: never;
@@ -435,13 +551,13 @@ export interface operations {
                     "application/json": components["schemas"]["CatalogResponse"];
                 };
             };
-            /** @description Validation Error */
+            /** @description Unprocessable Entity */
             422: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
+                    "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
         };
@@ -490,13 +606,13 @@ export interface operations {
                     "application/json": components["schemas"]["AskResponse"];
                 };
             };
-            /** @description Validation Error */
+            /** @description Unprocessable Entity */
             422: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
+                    "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
         };
@@ -512,7 +628,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["QueryIntent"];
+                "application/json": components["schemas"]["QueryRequest"];
             };
         };
         responses: {
@@ -522,16 +638,16 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ResultSet"];
+                    "application/json": components["schemas"]["QueryResponse"];
                 };
             };
-            /** @description Validation Error */
+            /** @description Unprocessable Entity */
             422: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
+                    "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
         };

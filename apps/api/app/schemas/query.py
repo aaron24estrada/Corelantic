@@ -13,6 +13,7 @@ from pydantic import BaseModel, Field
 
 from app.query.intent import QueryIntent
 from app.query.rows import CellValue
+from app.schemas.chart import ChartRequest, ChartSpec
 from app.semantic.models import MetricFormat
 
 
@@ -42,4 +43,26 @@ class ResultSet(BaseModel):
             "the inferred date dimension named, the comparison's kind decided. A caption can "
             "state the window the chart truly covers."
         )
+    )
+
+
+class QueryRequest(BaseModel):
+    """An intent, and optionally how to draw its answer.
+
+    ``chart`` is a sibling of the intent and never a field on it. An intent is a question and is
+    visual-independent (concepts.md §2); folding a chart type into it would echo presentation
+    back through ``resolved_intent`` and force the agent's planner to pick a visual in order to
+    ask anything at all.
+    """
+
+    intent: QueryIntent
+    chart: ChartRequest | None = Field(
+        default=None, description="Omit for rows only; name a type to also get a `ChartSpec`."
+    )
+
+
+class QueryResponse(BaseModel):
+    result: ResultSet
+    chart: ChartSpec | None = Field(
+        default=None, description="Present exactly when the request asked for a chart."
     )

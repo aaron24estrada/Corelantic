@@ -8,6 +8,7 @@ caller repair an intent, and a 500 must never say why.
 
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
+from pydantic import BaseModel
 
 from app.adapters.factory import ProviderNotConfiguredError
 from app.main import create_app
@@ -68,6 +69,27 @@ def test_a_semantic_error_escaping_validation_is_a_500_not_a_404() -> None:
 def test_an_unconfigured_provider_is_503() -> None:
     response = _client_raising(ProviderNotConfiguredError("no key")).get("/api/v1/_raise")
     assert response.status_code == 503
+
+
+def test_a_schema_level_rejection_wears_the_same_error_body() -> None:
+    # FastAPI's own 422 is a list of pydantic errors — a second shape on the status code that
+    # already carries ours. A client that must narrow `detail` before showing it cannot have one
+    # ErrorState, so the schema-level rejection is normalised into ErrorResponse too.
+    class Payload(BaseModel):
+        count: int
+
+    app: FastAPI = create_app()
+
+    @app.post("/api/v1/_body")
+    async def _endpoint(payload: Payload) -> None: ...
+
+    response = TestClient(app).post("/api/v1/_body", json={"count": "not a number"})
+
+    assert response.status_code == 422
+    body = response.json()
+    assert isinstance(body["detail"], str)
+    assert body["code"] == "invalid_request"
+    assert set(body) == {"detail", "code", "field", "allowed"}
 
 
 def test_an_unexpected_error_leaks_nothing() -> None:

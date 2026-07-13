@@ -24,6 +24,14 @@ We stopped waiting on Imran to confirm his agent's format, because waiting inver
 
 The spec is cheap to build because `POST /query` returns a `ResultSet` whose columns carry a `role` (period / dimension / metric / previous / delta) and a `format` (number / currency / percent / percent_point). A chart spec is a pure function of that result plus the intent that produced it, so the deterministic dashboard and an agent answer reach `<Chart>` by the same path.
 
+**D-9 — The chart request is a sibling of the intent, and the spec is built server-side.** *Settled 2026-07-10 with D3/D2.* `POST /query` takes `{intent, chart?}` and returns `{result, chart?}`; `AskResponse` carries the same `chart`. Two consequences, both deliberate:
+
+*The chart type never enters `QueryIntent`.* An intent is a question and is visual-independent (concepts.md §2). Folding a chart type into it would echo presentation back through `resolved_intent`, and would force E2's planner to choose a visual before it could ask anything at all.
+
+*One builder, in Python.* The alternative — the API types `ChartSpec` and the web builds it — gives two implementations of the same pivot rules and guarantees they drift, which is the failure `ResultSet`'s docstring exists to prevent. It also does not work mechanically: a Pydantic model no route returns never reaches `components.schemas`, so it would never flow into the generated TS client, which is what #12 asks for. The spec therefore carries its data, `<Chart>` is a dumb adapter, and the pivot is under pytest.
+
+**D-10 — A series' colour is a property of the model, not of the result.** *Settled 2026-07-10.* `ChartSpec.series[].palette_index` is the member's index in the registry's declared `members`. Ranking by value, or indexing into the members present in a given result, both look right until a cross-filter (D5) drops a series and repaints the survivors — the reader silently re-learns the legend. The price is that a dimension may only split a trend if it declares a closed member list that fits the eight-hue palette, which `channel` (nine members) and `state` (none) do not; both get a `422 unpivotable_dimension` naming the dimensions that do. Folding the ninth into "Other" needs the registry to mark a residual member, because `channel` already has real members named `Other` and `Unknown`.
+
 ## Open questions (need answers before or during the build)
 
 **O-1 — What exactly is the Azure SQL, and can we get a read-only credential?** "Azure SQL Express" is ambiguous (SQL Server Express on a VM vs. managed Azure SQL Database). This determines connection strategy and whether we need a replica/views to avoid loading production. Owner: Imran. Blocks M2.

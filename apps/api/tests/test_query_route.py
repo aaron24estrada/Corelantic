@@ -1,4 +1,4 @@
-"""The deterministic query surface: an intent in, a described ResultSet out."""
+"""The deterministic query surface: an intent in, a described ResultSet out, and maybe a chart."""
 
 from typing import Any, cast
 
@@ -16,10 +16,13 @@ def _with_fixture(client: TestClient) -> FastAPI:
     return app
 
 
-def _post(client: TestClient, intent: dict[str, Any]) -> Any:
+def _post(client: TestClient, intent: dict[str, Any], chart: dict[str, Any] | None = None) -> Any:
     app = _with_fixture(client)
+    body: dict[str, Any] = {"intent": intent}
+    if chart is not None:
+        body["chart"] = chart
     try:
-        return client.post("/api/v1/query", json=intent)
+        return client.post("/api/v1/query", json=body)
     finally:
         del app.dependency_overrides[get_data_source]
 
@@ -29,10 +32,12 @@ def test_a_bare_intent_returns_rows_and_their_column_schema(client: TestClient) 
     assert response.status_code == 200
     body = response.json()
 
-    assert body["rows"] == [{"new_leads": 100}]
-    assert body["columns"] == [
+    assert body["result"]["rows"] == [{"new_leads": 100}]
+    assert body["result"]["columns"] == [
         {"name": "new_leads", "role": "metric", "label": "New leads", "format": "number"}
     ]
+    # Presentation is opt-in: a caller that wants rows gets rows.
+    assert body["chart"] is None
     # Auth still guards the data path.
     assert client.headers["X-Internal-Api-Key"] == INTERNAL_KEY
 
@@ -41,11 +46,53 @@ def test_the_response_echoes_the_intent_it_actually_ran(client: TestClient) -> N
     # The window a chart is drawn from is the window its caption can claim.
     response = _post(client, {"metric": "new_leads", "date_range": "last_30_days"})
     assert response.status_code == 200
-    resolved = response.json()["resolved_intent"]
+    resolved = response.json()["result"]["resolved_intent"]
 
     assert isinstance(resolved["date_range"], dict)  # resolved to explicit dates, not a token
     assert resolved["date_range"]["start"] < resolved["date_range"]["end"]
     assert resolved["date_dimension"] == "lead_date"
+
+
+def test_a_chart_request_returns_a_spec_beside_the_rows(client: TestClient) -> None:
+    response = _post(client, {"metric": "new_leads", "grain": "month"}, chart={"type": "line"})
+    assert response.status_code == 200
+    body = response.json()
+
+    chart = body["chart"]
+    assert chart["type"] == "line"
+    assert chart["title"] == "New leads"
+    assert len(chart["series"]) == 1
+    assert chart["series"][0]["palette_index"] == 0
+    # The spec is a pivot of the rows, never a second query.
+    assert len(chart["categories"]) == len(body["result"]["rows"])
+
+
+def test_the_resolved_intent_never_echoes_the_chart_type(client: TestClient) -> None:
+    # An intent is a question and is visual-independent (concepts.md §2). If a chart type could
+    # ride inside it, the agent's planner would have to pick a visual to ask anything at all.
+    response = _post(client, {"metric": "new_leads", "grain": "month"}, chart={"type": "line"})
+    assert "chart" not in response.json()["result"]["resolved_intent"]
+
+
+def test_a_result_the_chart_cannot_draw_is_422_with_the_types_that_could(
+    client: TestClient,
+) -> None:
+    response = _post(client, {"metric": "new_leads"}, chart={"type": "line"})
+    assert response.status_code == 422
+    body = response.json()
+    assert body["code"] == "unsupported_chart_type"
+    assert body["field"] == "chart"
+
+
+def test_a_dimension_with_no_declared_members_cannot_be_pivoted(client: TestClient) -> None:
+    # The test registry's `channel` declares no members, so no channel has a colour a filter
+    # cannot move. Refusing beats drawing a legend the reader has to re-learn.
+    response = _post(
+        client, {"metric": "new_leads", "grain": "month", "group_by": ["channel"]}, {"type": "line"}
+    )
+    assert response.status_code == 422
+    assert response.json()["code"] == "unpivotable_dimension"
+    assert response.json()["field"] == "group_by"
 
 
 def test_an_intent_the_model_cannot_answer_is_422_with_the_alternatives(
@@ -76,7 +123,9 @@ def test_the_query_route_requires_the_internal_secret(client: TestClient) -> Non
     app = _with_fixture(client)
     try:
         response = client.post(
-            "/api/v1/query", json={"metric": "new_leads"}, headers={"X-Internal-Api-Key": "wrong"}
+            "/api/v1/query",
+            json={"intent": {"metric": "new_leads"}},
+            headers={"X-Internal-Api-Key": "wrong"},
         )
         assert response.status_code == 401
     finally:

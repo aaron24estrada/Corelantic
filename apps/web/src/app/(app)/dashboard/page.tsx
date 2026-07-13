@@ -1,3 +1,4 @@
+import { Chart } from "@/components/chart";
 import {
   Card,
   CardContent,
@@ -5,6 +6,8 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import { EmptyState } from "@/components/ui/empty-state";
+import { ErrorState } from "@/components/ui/error-state";
 import type { components } from "@/lib/api/schema";
 import { apiServer } from "@/lib/api/server";
 
@@ -25,8 +28,31 @@ function capabilities(metric: CatalogMetric): string[] {
   ];
 }
 
+// One request, not two: `grain` + `compare` returns the series, the value, its previous window
+// and the delta over a single resolved window. Fetching a metric and its delta separately could
+// not guarantee both covered the same days.
+async function leadsTrend() {
+  return apiServer.POST("/api/v1/query", {
+    body: {
+      intent: {
+        metric: "new_leads",
+        grain: "month",
+        date_range: "last_90_days",
+        compare: {},
+      },
+      chart: { type: "line" },
+    },
+  });
+}
+
 export default async function DashboardPage() {
-  const { data, error } = await apiServer.GET("/api/v1/catalog");
+  const [catalog, trend] = await Promise.all([
+    apiServer.GET("/api/v1/catalog"),
+    leadsTrend(),
+  ]);
+  // `chart` is present exactly when the request asked for one, but the contract types it as
+  // nullable for the callers that do not. Narrow it once here rather than assert it away.
+  const trendChart = trend.data?.chart ?? null;
 
   return (
     <div className="flex flex-col gap-8">
@@ -35,34 +61,51 @@ export default async function DashboardPage() {
           Executive overview
         </h1>
         <p className="text-muted-foreground text-sm">
-          {error
+          {catalog.error
             ? "The metric catalog is unavailable."
-            : `${data.metrics.length} metrics defined. The visuals are built on these next.`}
+            : `${catalog.data.metrics.length} metrics defined. The visuals are built on these next.`}
         </p>
       </header>
 
-      {error ? (
-        <Card>
-          <CardHeader>
-            <CardTitle>Can&rsquo;t reach the API</CardTitle>
-            <CardDescription>
-              Start it with <code>make dev-api</code>, then reload this page.
-            </CardDescription>
-          </CardHeader>
-        </Card>
-      ) : data.metrics.length === 0 ? (
-        <Card>
-          <CardHeader>
-            <CardTitle>No metrics defined</CardTitle>
-            <CardDescription>
-              Add one to the semantic registry, then run{" "}
-              <code>make validate</code>.
-            </CardDescription>
-          </CardHeader>
-        </Card>
+      <Card>
+        <CardHeader>
+          <CardTitle>New leads</CardTitle>
+          <CardDescription>
+            {/* The window the chart truly covers, resolved by the API — not the one we asked for. */}
+            {trendChart?.subtitle ?? "Monthly, against the previous month."}
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          {trend.error ? (
+            <ErrorState
+              title="Can’t draw this chart"
+              detail={trend.error.detail}
+              allowed={trend.error.allowed}
+            />
+          ) : trendChart === null || trendChart.categories.length === 0 ? (
+            <EmptyState
+              title="No leads in this window"
+              detail="Nothing was recorded in the last 90 days. That is an answer, not a failure."
+            />
+          ) : (
+            <Chart spec={trendChart} />
+          )}
+        </CardContent>
+      </Card>
+
+      {catalog.error ? (
+        <ErrorState
+          title="Can’t reach the API"
+          detail="Start it with make dev-api, then reload this page."
+        />
+      ) : catalog.data.metrics.length === 0 ? (
+        <EmptyState
+          title="No metrics defined"
+          detail="Add one to the semantic registry, then run make validate."
+        />
       ) : (
         <ul className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3">
-          {data.metrics.map((metric) => (
+          {catalog.data.metrics.map((metric) => (
             <li key={metric.name}>
               <Card className="h-full">
                 <CardHeader>
