@@ -16,8 +16,8 @@ constants:
     description: >-
       Average fee per signed case, in USD. Not stored anywhere in the warehouse: the Power BI
       model computes Revenue (Vouchers) as vouchers x this fee. Confirmed against the live
-      dashboard to the dollar (20,977 vouchers x 6000 = $125,862,000). Pending Imran's
-      confirmation that 6000 is current (#37).
+      dashboard to the dollar (20,977 vouchers x 6000 = $125,862,000), and confirmed current
+      by Imran on 2026-07-14.
 
 entities:
   cases:

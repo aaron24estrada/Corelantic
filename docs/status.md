@@ -23,9 +23,11 @@ It was 30 until week-over-week and year-to-date stopped being *metrics*. `leads_
   - Dialect-neutral time intelligence on the **intent** (grain, ranges, `compare`, `accumulate`) with SQLite **and** SQL Server renderings.
   - Two `DataSource` adapters behind one factory: **`azure_sql`** (real, Entra auth) and **`fixture`** (seeded in-memory SQLite).
   - **`ChartSpec`** — the fourth seam (D-6), authored in the API contract so it flows through OpenAPI into the generated TS client, and built by a pure function of `(chart request, resolved intent, ResultSet)`. It carries its data, so `<Chart>` is a dumb adapter and every pivot decision is under pytest.
-- **`apps/web`** (Next.js 16, React 19, Tailwind v4) — typed API client from the OpenAPI schema, BFF boundary, branded shell, and now **charts**: one `<Chart>` over `echarts/core`, the theme applied in exactly one place (`lib/chart/echarts-option.ts`), shared `ErrorState` / `EmptyState` / `ChartSkeleton`, and an eight-hue categorical palette. `/dashboard` draws a live trend beside the catalog. KPI tiles (D4) and the core visuals (D5) are next.
+- **`apps/web`** (Next.js 16, React 19, Tailwind v4) — typed API client from the OpenAPI schema, BFF boundary, branded shell, and **the dashboard**: one `<Chart>` over `echarts/core` (theme applied in exactly one place, `lib/chart/echarts-option.ts`), shared `ErrorState` / `EmptyState` / `ChartSkeleton`, an eight-hue categorical palette, and a `compact` sparkline mode. `/dashboard` renders the **buildable-now** subset of D4/D5: a KPI row (New leads · Voucher rate · Revenue live, each with a WoW delta and sparkline; Spend · ROAS as `#37`-pending placeholders), a monthly leads trend, and leads-by-channel / leads-by-state bars. Each visual is one intent → one `<Chart>`, its request declared in `lib/api/dashboard.ts`.
 
-`make check` green: 247 pytest + 22 vitest. `make validate` green: 5 entities, 19 measures, 14 dimensions, 25 metrics, 1 constant across two registry files.
+Still to build in D5: the **milestone funnel** (needs a `FUNNEL` chart type + composing the five `leads_reached_*` metrics — a multi-metric visual the single-metric intent doesn't express) and the **US map** (needs a `MAP` type + a US-states geoJSON asset). The **trends combo** (leads/spend/revenue on one chart) needs spend (#37) and an index-to-base or small-multiples treatment, because a shared axis is dishonest across those scales and a dual axis is out.
+
+`make check` green: 250 pytest + 27 vitest. `make validate` green: 5 entities, 19 measures, 14 dimensions, 25 metrics, 1 constant across two registry files.
 
 ## The API in one page
 
@@ -119,7 +121,7 @@ Every metric definition was **verified against the live tables**, not inferred. 
 - Agent conversion is **pooled** `SUM(converted)/SUM(contacted)` = 4.44%. `agent_stats` is a per-agent-per-week rollup, so averaging its stored `conversion_rate_pct` gives 2.65% — a mean-of-ratios error.
 - A `zoom_calls` row is a **call leg**, not a call (92,741 rows, 82,868 distinct `call_id`).
 - `cases.Milestone` is *current* state, **not** the funnel. The funnel is `stages`.
-- **Revenue is not stored**: Power BI computes it as `vouchers × $6,000`. That fee is a registry constant (`case_fee`), pending Imran's confirmation it's current.
+- **Revenue is not stored**: Power BI computes it as `vouchers × $6,000`. That fee is a registry constant (`case_fee`), confirmed current by Imran on 2026-07-14.
 
 ## Blocked — the real critical path
 
@@ -150,8 +152,9 @@ Read these before opening `apps/web`.
 1. **A series' colour belongs to the entity, not to its position.** `--chart-1..8` in `apps/web/src/app/globals.css` are now eight validated hues in both modes (the five greys are gone). `ChartSpec.series[].palette_index` is the member's index in the registry's **declared `members`**, so cross-filtering a trend down to two channels leaves those two the colour they already were. Index the palette by array position instead and a filter silently repaints the survivors — the reader re-learns the legend without noticing.
 
    The consequence, which surprises people: **a dimension can only be pivoted if it declares a closed member list of ≤ 8.** Today that is `call_direction` (2) and `call_result` (7). `channel` declares **nine** members and `state` declares none, so neither can split a trend — `POST /query` answers `422 unpivotable_dimension`. Nominal bars are unaffected (`leads by channel` is one series, every bar in slot 1 — colouring bars by their value would spend the identity channel re-encoding what bar length already shows). Folding a ninth member into "Other" is the obvious fix and is **not** trivial: `channel` already has members literally named `Other`, `Unknown` and `Other Social Media`, so a synthesised bucket would collide with a real one and quietly change the numbers. It needs the registry to mark a residual member. Filed, not built.
-2. **D4's KPI row asks for five tiles and three exist.** New leads, Voucher rate and Revenue are live. **Marketing Spend and ROAS are `marketing_budget`** (#37, Imran's). Either ship three and leave two gaps, or re-pick five from the 25 — the telephony and agent metrics are pure upside and nobody at KRW has seen them. A product call, not an engineering one.
+2. **D4's KPI row ships three live tiles + two placeholders.** New leads, Voucher rate and Revenue are live. Marketing Spend and ROAS are `marketing_budget` (#37) — landing in `gold_tspot` this week per Imran (2026-07-14), so the row shows them as dashed "arrives with #37" placeholders rather than substituting unrelated metrics. Swap the placeholders for `KpiTile`s once the spend/ROAS metrics are authored.
 3. **A KPI tile is one request, not two.** `POST /query` with `grain` + `compare` returns `period`, the value, `previous` and `delta` together, over one window. Do not fetch a metric and its delta separately; that was the old design and it could not guarantee both covered the same days.
+4. **The KPI headline is the last weekly bucket, which is a *partial* current week.** So early in the week every tile reads low and its WoW delta looks like a crash (leads 473 → 265, −44%, because the week is two days old). This is the partial-bucket family (#52/#53), and the honest fix is API-side: a "last complete period" the headline can point at. Do not paper over it with week-boundary math in the view layer — that duplicates the compiler's calendar and will drift from it.
 
 "Recent intakes" (D5) is the one visual with no metric behind it — it wants raw rows, not an aggregate, and no endpoint returns those.
 

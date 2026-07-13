@@ -34,6 +34,8 @@ interface ChartProps {
   spec: ChartSpec;
   /** Charts have no intrinsic height; a canvas with none collapses to nothing. */
   className?: string;
+  /** Draw as a chrome-less sparkline — no axes, legend, or hover. For KPI tiles. */
+  compact?: boolean;
 }
 
 /**
@@ -43,7 +45,7 @@ interface ChartProps {
  * for React 19 support, and the whole point of the `ChartSpec` seam is that exactly one file
  * knows the library. That file is `lib/chart/echarts-option.ts`; this one just owns the canvas.
  */
-export function Chart({ spec, className }: ChartProps) {
+export function Chart({ spec, className, compact = false }: ChartProps) {
   const container = useRef<HTMLDivElement>(null);
   const { resolvedTheme } = useTheme();
 
@@ -55,7 +57,12 @@ export function Chart({ spec, className }: ChartProps) {
     // Read the palette off the mounted element, so the `.dark` class resolves it and CSS stays
     // the single source of truth. `resolvedTheme` is in the dep array to re-read on a toggle.
     instance.setOption(
-      toEChartsOption(spec, readChartTheme(element), !prefersReducedMotion()),
+      toEChartsOption(
+        spec,
+        readChartTheme(element),
+        !prefersReducedMotion(),
+        compact,
+      ),
     );
 
     // ECharts sizes to its container once. Without this a chart drawn in a collapsed tab, or a
@@ -67,7 +74,7 @@ export function Chart({ spec, className }: ChartProps) {
       observer.disconnect();
       instance.dispose();
     };
-  }, [spec, resolvedTheme]);
+  }, [spec, resolvedTheme, compact]);
 
   return (
     <div

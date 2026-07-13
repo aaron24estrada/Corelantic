@@ -20,7 +20,13 @@ export function toEChartsOption(
   spec: ChartSpec,
   theme: ChartTheme,
   animate: boolean,
+  compact = false,
 ): EChartsCoreOption {
+  // A sparkline is the same spec drawn as a mark, not a chart: no axes, no grid, no legend, no
+  // hover — just the line, so a KPI tile can carry its own recent history. Still one <Chart> and
+  // one theme; the difference is chrome, not a second renderer.
+  if (compact) return _sparkline(spec, theme, animate);
+
   const axisFormat = spec.y.format ?? "number";
   // A legend for two or more series, none for one — the title already names a lone series, and a
   // legend of one is furniture that steals plot height.
@@ -82,6 +88,43 @@ export function toEChartsOption(
       },
     },
     series: spec.series.map((series) => seriesOption(series, spec.type, theme)),
+  };
+}
+
+function _sparkline(
+  spec: ChartSpec,
+  theme: ChartTheme,
+  animate: boolean,
+): EChartsCoreOption {
+  // Only the primary series is drawn — a tile shows its own trend, not its comparison; the delta
+  // beside it already carries the change. Full-bleed grid so the line uses every pixel.
+  const primary =
+    spec.series.find((series) => series.role === "primary") ?? spec.series[0];
+  return {
+    animation: animate,
+    backgroundColor: "transparent",
+    grid: { left: 0, right: 0, top: 2, bottom: 2 },
+    xAxis: {
+      type: "category",
+      data: spec.categories,
+      show: false,
+      boundaryGap: false,
+    },
+    yAxis: { type: "value", show: false, scale: true },
+    series: primary
+      ? [
+          {
+            type: "line",
+            data: primary.data,
+            showSymbol: false,
+            connectNulls: false,
+            lineStyle: {
+              color: theme.series[primary.palette_index],
+              width: 1.5,
+            },
+          },
+        ]
+      : [],
   };
 }
 

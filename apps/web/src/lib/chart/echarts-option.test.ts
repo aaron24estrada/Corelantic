@@ -180,6 +180,43 @@ describe("toEChartsOption", () => {
     expect(option.yAxis.axisLabel.formatter(0.24)).toBe("24%");
   });
 
+  it("compact mode draws only the primary series, chrome-less", () => {
+    // A KPI sparkline is the same spec drawn as a mark: no axes, no legend, and the comparison
+    // is dropped — the delta beside the tile already carries the change.
+    const option = toEChartsOption(
+      spec({
+        series: [
+          {
+            name: "New leads",
+            data: [400, 480],
+            format: "number",
+            role: "primary",
+            palette_index: 0,
+          },
+          {
+            name: "Previous",
+            data: [null, 400],
+            format: "number",
+            role: "comparison",
+            palette_index: 0,
+          },
+        ],
+      }),
+      THEME,
+      false,
+      true,
+    ) as {
+      legend?: unknown;
+      xAxis: { show: boolean };
+      yAxis: { show: boolean };
+      series: unknown[];
+    };
+    expect(option.series).toHaveLength(1);
+    expect(option.xAxis.show).toBe(false);
+    expect(option.yAxis.show).toBe(false);
+    expect(option.legend).toBeUndefined();
+  });
+
   it("honours a reader who asked for less motion", () => {
     expect(
       (toEChartsOption(spec(), THEME, false) as { animation: boolean })

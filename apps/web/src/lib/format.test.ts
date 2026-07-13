@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { formatTick, formatValue, signed } from "@/lib/format";
+import { formatDelta, formatTick, formatValue, signed } from "@/lib/format";
 
 describe("formatValue", () => {
   it("renders the delta of a rate in points, never in percent", () => {
@@ -30,6 +30,26 @@ describe("formatValue", () => {
     // A null is a bucket with no rows, or the first bucket of a comparison. Zero is a claim.
     expect(formatValue(null, "number")).toBe("—");
     expect(formatValue(null, "currency")).toBe("—");
+  });
+});
+
+describe("formatDelta", () => {
+  it("signs a percent change and keeps it a percent", () => {
+    // A count's delta comes back as a ratio: -0.44 is a 44% drop.
+    expect(formatDelta(-0.44, "percent")).toBe("−44.0%");
+    expect(formatDelta(0.2, "percent")).toBe("+20.0%");
+  });
+
+  it("keeps a rate's delta in points, always signed", () => {
+    expect(formatDelta(0.04, "percent_point")).toBe("+4.0 pts");
+  });
+
+  it("signs a currency change", () => {
+    expect(formatDelta(-6000, "currency")).toBe("−$6,000");
+  });
+
+  it("renders a missing delta as a dash", () => {
+    expect(formatDelta(null, "percent")).toBe("—");
   });
 });
 

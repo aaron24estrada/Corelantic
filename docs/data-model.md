@@ -54,8 +54,8 @@ We now read `gold_tspot` directly. What follows was measured, not inferred — a
 - **A `zoom_calls` row is a call leg**, not a call: 92,741 rows, 82,868 distinct `call_id`.
 - **Agent conversion must be pooled**: `SUM(leads_converted)/SUM(leads_contacted)` = 4.44%. `agent_stats` is a per-agent-per-week rollup, so averaging its stored `conversion_rate_pct` yields 2.65% — a mean-of-ratios error.
 - **~38% of leads have no `geo` row.** An inner join silently drops them; the dashboard shows them as its "(Blank)" bucket.
-- **`cases.CaseType` is only ever `Asbestos`** here. Cancer type and referral firm live in the unreadable `referral_leads`.
-- **Revenue is not stored.** Power BI computes `Revenue (Vouchers)` as `vouchers × $6,000` (20,977 × 6000 = $125,862,000, to the dollar). Modelled as the registry constant `case_fee`; **pending Imran's confirmation the fee is current**.
+- **`cases.CaseType` is only ever `Asbestos`** here. Cancer type and referral firm live in `referral_leads`, which Imran landed in `gold_tspot` on 2026-07-14 (not yet probed against the live tables from our side — the metrics are unauthored).
+- **Revenue is not stored.** Power BI computes `Revenue (Vouchers)` as `vouchers × $6,000` (20,977 × 6000 = $125,862,000, to the dollar). Modelled as the registry constant `case_fee`; **confirmed current by Imran on 2026-07-14**.
 
 ### Coverage windows
 
@@ -67,9 +67,9 @@ We now read `gold_tspot` directly. What follows was measured, not inferred — a
 
 ## The remaining gap
 
-1. **Spend and referrals** — read access to whichever schema holds `marketing_budget` and `referral_leads` (**#37**). Blocks ROAS, Cost per Lead, and the whole Referrals page.
-2. **Confirm the $6,000 case fee**, and whether it should be configurable.
-3. **A service principal** for headless (deployed) Azure SQL access; the dev path uses a personal MFA account.
+1. **Spend and referrals** (**#37**) — both moving into `gold_tspot` as of 2026-07-14 (Imran): `referral_leads` landed, `marketing_budget` mid-migration. The access blocker is lifting; the remaining work is to **probe the live tables and author the metrics** (`spend` → ROAS, Cost per Lead; referral cancer type / firm / fees). Not yet done — needs a live-DB session (VPN + device auth), which the working agreement says must precede authoring.
+2. ~~Confirm the $6,000 case fee~~ — confirmed current by Imran 2026-07-14. Still open: whether it should be configurable rather than a constant.
+3. **A service principal** for headless (deployed) Azure SQL access; Imran expects to provision one this week. The dev path uses a personal MFA account.
 
 The measure *formulas* are no longer a blocker: everything readable has been re-derived from the source and reconciled against the dashboard.
 

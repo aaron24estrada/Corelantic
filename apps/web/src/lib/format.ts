@@ -50,6 +50,30 @@ export function signed(value: number, fractionDigits = 0): string {
   return formatted;
 }
 
+/**
+ * A change, always signed so it reads as a direction.
+ *
+ * Distinct from `formatValue` because a delta must show its sign even when positive (`+12%`, not
+ * `12%`), and because the API sends a percent delta as a ratio (`-0.44` → `-44%`) and a
+ * percent-point delta already in points (`0.04` → `+4.0 pts`). The column's format says which.
+ */
+export function formatDelta(
+  value: number | null,
+  format: MetricFormat,
+): string {
+  if (value === null || Number.isNaN(value)) return "—";
+  switch (format) {
+    case "percent":
+      return `${signed(value * 100, 1)}%`;
+    case "percent_point":
+      return `${signed(value * 100, 1)} pts`;
+    case "currency":
+      return `${value < 0 ? "−" : "+"}${formatValue(Math.abs(value), "currency")}`;
+    case "number":
+      return signed(value);
+  }
+}
+
 /** Axis ticks are cramped, so they abbreviate where a tooltip would not. */
 export function formatTick(value: number, format: MetricFormat): string {
   if (format === "percent") {
