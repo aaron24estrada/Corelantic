@@ -22,28 +22,52 @@ const kpi = (metric: string) =>
     chart: { type: "line" },
   });
 
+/** A monthly trend line against the previous month — the shared shape for the exec trends. */
+const monthlyTrend = (metric: string) =>
+  query({
+    intent: { metric, grain: "month", date_range: "last_365_days", compare: {} },
+    chart: { type: "line" },
+  });
+
+/** A single-series categorical bar: one metric broken down by one nominal dimension. */
+const breakdown = (metric: string, dimension: string) =>
+  query({
+    intent: { metric, group_by: [dimension] },
+    chart: { type: "bar" },
+  });
+
 /** All the dashboard's data, fetched concurrently so one slow visual does not block the rest. */
 export function dashboardData() {
   return {
+    // Executive — leads, revenue, intake funnel.
     leads: kpi("new_leads"),
     voucherRate: kpi("voucher_rate"),
     revenue: kpi("revenue"),
-    trend: query({
+    trend: monthlyTrend("new_leads"),
+    revenueTrend: monthlyTrend("revenue"),
+    voucherRateTrend: monthlyTrend("voucher_rate"),
+    funnel: breakdown("funnel_reach", "stage_name"),
+    byChannel: breakdown("new_leads", "channel"),
+    byState: breakdown("new_leads", "state"),
+    byStatus: breakdown("new_leads", "status"),
+
+    // Call center — net-new over telephony (zoom_calls, agent_stats); not on KRW's dashboard.
+    totalCalls: kpi("total_calls"),
+    answerRate: kpi("answer_rate"),
+    avgWait: kpi("avg_wait_time_sec"),
+    agentConversion: kpi("agent_conversion_rate"),
+    // Inbound vs outbound over time: a pivoted trend, so grain + group_by, no compare.
+    callsInOut: query({
       intent: {
-        metric: "new_leads",
-        grain: "month",
-        date_range: "last_365_days",
-        compare: {},
+        metric: "total_calls",
+        grain: "week",
+        group_by: ["call_direction"],
+        date_range: "last_90_days",
       },
       chart: { type: "line" },
     }),
-    byChannel: query({
-      intent: { metric: "new_leads", group_by: ["channel"] },
-      chart: { type: "bar" },
-    }),
-    byState: query({
-      intent: { metric: "new_leads", group_by: ["state"] },
-      chart: { type: "bar" },
-    }),
+    callsByDisposition: breakdown("total_calls", "call_result"),
+    answerRateByRegion: breakdown("answer_rate", "call_region"),
+    conversionsByRegion: breakdown("leads_converted", "agent_region"),
   };
 }
