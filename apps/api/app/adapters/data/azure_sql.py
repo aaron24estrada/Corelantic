@@ -11,7 +11,11 @@ import struct
 from typing import Any
 
 from azure.core.credentials import TokenCredential
-from azure.identity import ClientSecretCredential, DeviceCodeCredential
+from azure.identity import (
+    ClientSecretCredential,
+    DeviceCodeCredential,
+    TokenCachePersistenceOptions,
+)
 from sqlalchemy import Select, create_engine, event
 from sqlalchemy.engine import URL, Engine
 
@@ -75,7 +79,14 @@ def build_credential(settings: Settings) -> TokenCredential:
             client_id=str(settings.azure_sql_client_id),
             client_secret=secret.get_secret_value() if secret else "",
         )
-    return DeviceCodeCredential(tenant_id=settings.azure_sql_tenant_id or "organizations")
+    # Persist the token cache so a dev restart (and every hot-reload) reuses the last login
+    # instead of re-prompting. Tokens live in the OS keychain (encrypted), not in the repo; the
+    # refresh token keeps silent auth working for ~90 days. Prod uses the service principal above
+    # and never reaches this branch.
+    return DeviceCodeCredential(
+        tenant_id=settings.azure_sql_tenant_id or "organizations",
+        cache_persistence_options=TokenCachePersistenceOptions(name="corelantic-krw"),
+    )
 
 
 def token_struct(credential: TokenCredential) -> bytes:
