@@ -36,14 +36,14 @@ export function Hero({ total, trend, facts, caption }: HeroProps) {
   const chart = trend?.data?.chart ?? null;
 
   return (
-    <div className="bg-card ring-foreground/10 grid grid-cols-1 gap-8 rounded-2xl px-7 py-7 ring-1 lg:grid-cols-[1fr_1.05fr] lg:items-center lg:gap-10">
+    <div className="bg-card ring-foreground/10 grid grid-cols-1 gap-8 rounded-2xl px-8 py-7 ring-1 lg:grid-cols-[1fr_1.05fr] lg:items-center lg:gap-10">
       <div>
         <div className="bg-primary mb-4 h-[3px] w-9 rounded-full" />
         <p className="text-muted-foreground text-[10.5px] font-bold tracking-[0.11em] uppercase">
           Total revenue · signed vouchers
         </p>
         <p
-          className="font-display mt-2 text-[clamp(44px,6vw,64px)] leading-none font-bold tracking-[-0.04em]"
+          className="font-display mt-2 text-[clamp(46px,6.2vw,66px)] leading-none font-bold tracking-[-0.045em]"
           data-numeric
         >
           {revenue ? compactCurrency(revenue.value) : "—"}
