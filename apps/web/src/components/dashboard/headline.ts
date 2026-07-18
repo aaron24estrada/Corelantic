@@ -1,4 +1,5 @@
 import type { components } from "@/lib/api/schema";
+import { toNumber } from "@/lib/format";
 
 type ResultSet = components["schemas"]["ResultSet"];
 type MetricFormat = components["schemas"]["MetricFormat"];
@@ -20,10 +21,8 @@ export function headline(result: ResultSet): Headline {
   const metric = columns.find((c) => c.role === "metric");
   const delta = columns.find((c) => c.role === "delta");
   const last = result.rows.at(-1) ?? {};
-  const cell = (name: string | undefined): number | null => {
-    const raw = name ? last[name] : null;
-    return typeof raw === "number" ? raw : null;
-  };
+  const cell = (name: string | undefined): number | null =>
+    toNumber(name ? last[name] : null);
   return {
     value: cell(metric?.name),
     format: metric?.format ?? "number",
@@ -51,11 +50,11 @@ export function categoryRows(result: ResultSet): {
   const rows: CategoryRow[] = [];
   for (const row of result.rows) {
     const rawLabel = dim ? row[dim.name] : null;
-    const rawValue = metric ? row[metric.name] : null;
-    if (typeof rawValue === "number") {
+    const value = toNumber(metric ? row[metric.name] : null);
+    if (value !== null) {
       rows.push({
         label: rawLabel == null ? "(Blank)" : String(rawLabel),
-        value: rawValue,
+        value,
       });
     }
   }
@@ -66,9 +65,8 @@ export function categoryRows(result: ResultSet): {
 export function scalar(result: ResultSet): { value: number | null; format: MetricFormat } {
   const metric = result.columns.find((c) => c.role === "metric");
   const first = result.rows[0] ?? {};
-  const raw = metric ? first[metric.name] : null;
   return {
-    value: typeof raw === "number" ? raw : null,
+    value: toNumber(metric ? first[metric.name] : null),
     format: metric?.format ?? "number",
   };
 }

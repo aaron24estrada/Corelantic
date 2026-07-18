@@ -1,7 +1,7 @@
 import type { EChartsCoreOption } from "echarts/core";
 
 import type { components } from "@/lib/api/schema";
-import { formatTick, formatValue } from "@/lib/format";
+import { formatTick, formatValue, toNumber } from "@/lib/format";
 import type { ChartTheme } from "@/lib/chart/theme";
 
 type ChartSpec = components["schemas"]["ChartSpec"];
@@ -69,8 +69,9 @@ export function toEChartsOption(
       backgroundColor: theme.surface,
       borderColor: theme.grid,
       textStyle: { color: theme.text, fontSize: 12 },
-      valueFormatter: (value: unknown) =>
-        formatValue(typeof value === "number" ? value : null, axisFormat),
+      // The API sends decimals as strings (see toNumber); coerce so a currency/percent tooltip
+      // reads its real value rather than "—".
+      valueFormatter: (value: unknown) => formatValue(toNumber(value), axisFormat),
     },
     xAxis: {
       type: "category",
@@ -128,7 +129,7 @@ function _sparkline(
       ? [
           {
             type: "line",
-            data: primary.data,
+            data: primary.data.map((value) => toNumber(value)),
             showSymbol: false,
             connectNulls: false,
             lineStyle: {
@@ -153,8 +154,9 @@ function seriesOption(
   const common = {
     name: series.name,
     // `null` is a gap, never a zero: a week with no rows, or the first bucket of a comparison,
-    // which has nothing before it. ECharts breaks the line on null and would plot a 0.
-    data: series.data,
+    // which has nothing before it. ECharts breaks the line on null and would plot a 0. `toNumber`
+    // also coerces the string decimals SQL Server sends for ratio/currency series, keeping nulls.
+    data: series.data.map((value) => toNumber(value)),
     color,
     // The comparison is the same entity in an earlier window, so it is told apart by weight and
     // stroke rather than by hue. A second colour would imply a second thing.
