@@ -46,6 +46,8 @@
 
   --font-sans: var(--font-open-sans);
   --font-heading: var(--font-open-sans);
+  /* Headline figures only — the hero total and the stat-band values. Body text stays sans. */
+  --font-display: var(--font-bricolage);
 
   /* 0.875rem lands shadcn's derived scale on our spec: lg (buttons) = 14px,
      xl (cards) = 19.6px, md (inputs, badges) = 11.2px. */

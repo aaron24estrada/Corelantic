@@ -1,6 +1,27 @@
 import { describe, expect, it } from "vitest";
 
-import { formatDelta, formatTick, formatValue, signed } from "@/lib/format";
+import {
+  formatDelta,
+  formatTick,
+  formatValue,
+  signed,
+  toNumber,
+} from "@/lib/format";
+
+describe("toNumber", () => {
+  it("accepts the string decimals SQL Server sends for ratios, and real numbers", () => {
+    expect(toNumber("0.2866997114971456632")).toBeCloseTo(0.2867, 4);
+    expect(toNumber(130328)).toBe(130328);
+  });
+
+  it("keeps a gap a gap and rejects non-numbers", () => {
+    // null is a genuine gap in a series, not zero; a non-numeric string is not a value.
+    expect(toNumber(null)).toBeNull();
+    expect(toNumber("")).toBeNull();
+    expect(toNumber("(Blank)")).toBeNull();
+    expect(toNumber(Number.NaN)).toBeNull();
+  });
+});
 
 describe("formatValue", () => {
   it("renders the delta of a rate in points, never in percent", () => {

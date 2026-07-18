@@ -1,7 +1,7 @@
 import type { EChartsCoreOption } from "echarts/core";
 
 import type { components } from "@/lib/api/schema";
-import { formatTick, formatValue } from "@/lib/format";
+import { formatTick, formatValue, toNumber } from "@/lib/format";
 import type { ChartTheme } from "@/lib/chart/theme";
 
 type ChartSpec = components["schemas"]["ChartSpec"];
@@ -31,6 +31,10 @@ export function toEChartsOption(
   // A legend for two or more series, none for one — the title already names a lone series, and a
   // legend of one is furniture that steals plot height.
   const showLegend = spec.series.length > 1;
+  // A single-series line gets a faint area fill under it (the hero revenue, a lone trend). Two or
+  // more lines do not — overlapping fills muddy each other and a fill would imply a stack. So the
+  // fill is exactly the "one line" case, which is also the only one where it reads as emphasis.
+  const fill = spec.type === "line" && spec.series.length === 1;
 
   return {
     animation: animate,
@@ -65,8 +69,9 @@ export function toEChartsOption(
       backgroundColor: theme.surface,
       borderColor: theme.grid,
       textStyle: { color: theme.text, fontSize: 12 },
-      valueFormatter: (value: unknown) =>
-        formatValue(typeof value === "number" ? value : null, axisFormat),
+      // The API sends decimals as strings (see toNumber); coerce so a currency/percent tooltip
+      // reads its real value rather than "—".
+      valueFormatter: (value: unknown) => formatValue(toNumber(value), axisFormat),
     },
     xAxis: {
       type: "category",
@@ -87,8 +92,17 @@ export function toEChartsOption(
         formatter: (value: number) => formatTick(value, axisFormat),
       },
     },
-    series: spec.series.map((series) => seriesOption(series, spec.type, theme)),
+    series: spec.series.map((series) => seriesOption(series, spec.type, theme, fill)),
   };
+}
+
+/** A hex from the theme as an rgba string, so an area gradient fades the line's own colour out. */
+function withAlpha(hex: string, alpha: number): string {
+  const h = hex.replace("#", "");
+  const r = Number.parseInt(h.slice(0, 2), 16);
+  const g = Number.parseInt(h.slice(2, 4), 16);
+  const b = Number.parseInt(h.slice(4, 6), 16);
+  return `rgba(${r}, ${g}, ${b}, ${alpha})`;
 }
 
 function _sparkline(
@@ -115,7 +129,7 @@ function _sparkline(
       ? [
           {
             type: "line",
-            data: primary.data,
+            data: primary.data.map((value) => toNumber(value)),
             showSymbol: false,
             connectNulls: false,
             lineStyle: {
@@ -132,6 +146,7 @@ function seriesOption(
   series: ChartSeries,
   type: ChartSpec["type"],
   theme: ChartTheme,
+  fill = false,
 ) {
   const color = theme.series[series.palette_index];
   const comparison = series.role === "comparison";
@@ -139,8 +154,9 @@ function seriesOption(
   const common = {
     name: series.name,
     // `null` is a gap, never a zero: a week with no rows, or the first bucket of a comparison,
-    // which has nothing before it. ECharts breaks the line on null and would plot a 0.
-    data: series.data,
+    // which has nothing before it. ECharts breaks the line on null and would plot a 0. `toNumber`
+    // also coerces the string decimals SQL Server sends for ratio/currency series, keeping nulls.
+    data: series.data.map((value) => toNumber(value)),
     color,
     // The comparison is the same entity in an earlier window, so it is told apart by weight and
     // stroke rather than by hue. A second colour would imply a second thing.
@@ -171,6 +187,25 @@ function seriesOption(
       opacity: comparison ? 0.55 : 1,
       type: comparison ? ("dashed" as const) : ("solid" as const),
     },
+    // A vertical gradient of the line's own colour, fading to nothing at the baseline — emphasis,
+    // not a second encoding. Only the single-line case asks for it (see `fill` above).
+    ...(fill && !comparison
+      ? {
+          areaStyle: {
+            color: {
+              type: "linear" as const,
+              x: 0,
+              y: 0,
+              x2: 0,
+              y2: 1,
+              colorStops: [
+                { offset: 0, color: withAlpha(color, 0.2) },
+                { offset: 1, color: withAlpha(color, 0) },
+              ],
+            },
+          },
+        }
+      : {}),
     emphasis: { focus: "series" as const },
   };
 }

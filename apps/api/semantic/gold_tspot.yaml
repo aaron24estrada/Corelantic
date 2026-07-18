@@ -134,6 +134,14 @@ metrics:
   # and derived metrics a comparison metric could never wrap. See app/query/intent.py.
 
   # Intake funnel — leads reaching each milestone, and the conversion rates.
+  # `stage_leads` counts distinct leads over the stage history, so grouping this metric by
+  # `stage_name` yields the intake funnel in one query — each bar a stage, no fan-out because
+  # measure and dimension share the `stages` entity. Ungrouped it equals total leads.
+  funnel_reach:
+    label: "Leads reaching stage"
+    description: "Distinct leads that reached each funnel stage."
+    measure: stage_leads
+    synonyms: ["funnel", "stage reach", "leads by stage"]
   vouchers:
     label: "Vouchers"
     description: "Leads reaching the voucher (initial intake) stage."
