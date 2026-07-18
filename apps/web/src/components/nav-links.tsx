@@ -5,16 +5,23 @@ import { usePathname } from "next/navigation";
 
 import { cn } from "@/lib/utils";
 
-// "Ask your data" joins this list with E4 (issue #19). Until its route exists,
-// linking to it would only produce a 404.
-const NAV_ITEMS = [{ href: "/dashboard", label: "Dashboard" }] as const;
+// Overview is the only route that exists today. The rest are shown to convey the product's
+// scope but are inert until their routes land — "Leads & intake" / "Call center" as dedicated
+// pages, "Ask your data" with the NL panel (E4, issue #19). Rendering them as non-links keeps
+// them from 404-ing.
+const ROUTES = [{ href: "/dashboard", label: "Overview" }] as const;
+const PLANNED: { label: string; soon?: boolean }[] = [
+  { label: "Leads & intake" },
+  { label: "Call center" },
+  { label: "Ask your data", soon: true },
+];
 
 export function NavLinks() {
   const pathname = usePathname();
 
   return (
-    <nav className="flex items-center gap-1">
-      {NAV_ITEMS.map(({ href, label }) => {
+    <nav className="flex items-center gap-0.5">
+      {ROUTES.map(({ href, label }) => {
         const isActive = pathname === href || pathname.startsWith(`${href}/`);
         return (
           <Link
@@ -22,17 +29,31 @@ export function NavLinks() {
             href={href}
             aria-current={isActive ? "page" : undefined}
             className={cn(
-              "rounded-md px-3 py-1.5 text-sm font-medium transition-colors",
+              "rounded-lg px-3 py-1.5 text-sm transition-colors",
               "focus-visible:ring-ring focus-visible:ring-2 focus-visible:outline-none",
               isActive
-                ? "text-ring bg-primary/10"
-                : "text-muted-foreground hover:text-foreground hover:bg-muted",
+                ? "text-foreground font-semibold"
+                : "text-muted-foreground hover:text-foreground hover:bg-muted font-medium",
             )}
           >
             {label}
           </Link>
         );
       })}
+      {PLANNED.map(({ label, soon }) => (
+        <span
+          key={label}
+          aria-disabled="true"
+          className="text-muted-foreground/70 hidden cursor-default items-center gap-1.5 px-3 py-1.5 text-sm font-medium lg:inline-flex"
+        >
+          {label}
+          {soon ? (
+            <span className="border-border text-muted-foreground rounded-full border px-1.5 py-px text-[9px] font-bold tracking-wide uppercase">
+              soon
+            </span>
+          ) : null}
+        </span>
+      ))}
     </nav>
   );
 }
