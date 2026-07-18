@@ -54,6 +54,7 @@ interface DrawnSeries {
   connectNulls?: boolean;
   lineStyle?: { type: string; width: number; opacity: number };
   itemStyle?: { color: string; opacity: number };
+  areaStyle?: { color: unknown };
 }
 
 const series = (option: unknown): DrawnSeries[] =>
@@ -215,6 +216,41 @@ describe("toEChartsOption", () => {
     expect(option.xAxis.show).toBe(false);
     expect(option.yAxis.show).toBe(false);
     expect(option.legend).toBeUndefined();
+  });
+
+  it("fills a lone line but never overlapping ones", () => {
+    // A single line reads its fill as emphasis; two fills would muddy and imply a stack.
+    expect(series(toEChartsOption(spec(), THEME, true))[0].areaStyle).toBeDefined();
+
+    const two = toEChartsOption(
+      spec({
+        series: [
+          { name: "inbound", data: [3, 4], format: "number", role: "primary", palette_index: 0 },
+          { name: "outbound", data: [7, 6], format: "number", role: "primary", palette_index: 1 },
+        ],
+      }),
+      THEME,
+      true,
+    );
+    expect(series(two)[0].areaStyle).toBeUndefined();
+    expect(series(two)[1].areaStyle).toBeUndefined();
+  });
+
+  it("does not fill a bar or a sparkline", () => {
+    const bar = toEChartsOption(
+      spec({
+        type: "bar",
+        categories: ["CTV", "Facebook"],
+        series: [
+          { name: "New leads", data: [90, 10], format: "number", role: "primary", palette_index: 0 },
+        ],
+      }),
+      THEME,
+      true,
+    );
+    expect(series(bar)[0].areaStyle).toBeUndefined();
+    // Compact sparkline: a bare mark, no fill.
+    expect(series(toEChartsOption(spec(), THEME, false, true))[0].areaStyle).toBeUndefined();
   });
 
   it("honours a reader who asked for less motion", () => {

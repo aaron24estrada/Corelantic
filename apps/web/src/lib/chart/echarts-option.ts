@@ -31,6 +31,10 @@ export function toEChartsOption(
   // A legend for two or more series, none for one — the title already names a lone series, and a
   // legend of one is furniture that steals plot height.
   const showLegend = spec.series.length > 1;
+  // A single-series line gets a faint area fill under it (the hero revenue, a lone trend). Two or
+  // more lines do not — overlapping fills muddy each other and a fill would imply a stack. So the
+  // fill is exactly the "one line" case, which is also the only one where it reads as emphasis.
+  const fill = spec.type === "line" && spec.series.length === 1;
 
   return {
     animation: animate,
@@ -87,8 +91,17 @@ export function toEChartsOption(
         formatter: (value: number) => formatTick(value, axisFormat),
       },
     },
-    series: spec.series.map((series) => seriesOption(series, spec.type, theme)),
+    series: spec.series.map((series) => seriesOption(series, spec.type, theme, fill)),
   };
+}
+
+/** A hex from the theme as an rgba string, so an area gradient fades the line's own colour out. */
+function withAlpha(hex: string, alpha: number): string {
+  const h = hex.replace("#", "");
+  const r = Number.parseInt(h.slice(0, 2), 16);
+  const g = Number.parseInt(h.slice(2, 4), 16);
+  const b = Number.parseInt(h.slice(4, 6), 16);
+  return `rgba(${r}, ${g}, ${b}, ${alpha})`;
 }
 
 function _sparkline(
@@ -132,6 +145,7 @@ function seriesOption(
   series: ChartSeries,
   type: ChartSpec["type"],
   theme: ChartTheme,
+  fill = false,
 ) {
   const color = theme.series[series.palette_index];
   const comparison = series.role === "comparison";
@@ -171,6 +185,25 @@ function seriesOption(
       opacity: comparison ? 0.55 : 1,
       type: comparison ? ("dashed" as const) : ("solid" as const),
     },
+    // A vertical gradient of the line's own colour, fading to nothing at the baseline — emphasis,
+    // not a second encoding. Only the single-line case asks for it (see `fill` above).
+    ...(fill && !comparison
+      ? {
+          areaStyle: {
+            color: {
+              type: "linear" as const,
+              x: 0,
+              y: 0,
+              x2: 0,
+              y2: 1,
+              colorStops: [
+                { offset: 0, color: withAlpha(color, 0.2) },
+                { offset: 1, color: withAlpha(color, 0) },
+              ],
+            },
+          },
+        }
+      : {}),
     emphasis: { focus: "series" as const },
   };
 }
