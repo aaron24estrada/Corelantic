@@ -32,6 +32,15 @@ class JsonFormatter(logging.Formatter):
         return json.dumps(payload, default=str)
 
 
+# These log every HTTP response, headers included, at INFO — several lines per token refresh,
+# which buries the device-code prompt a developer has to act on. Warnings still come through.
+_NOISY_LOGGERS = (
+    "azure.core.pipeline.policies.http_logging_policy",
+    "azure.identity",
+    "msal",
+)
+
+
 def configure_logging(level: int = logging.INFO) -> None:
     handler = logging.StreamHandler()
     handler.setFormatter(JsonFormatter())
@@ -39,3 +48,5 @@ def configure_logging(level: int = logging.INFO) -> None:
     root.handlers.clear()
     root.addHandler(handler)
     root.setLevel(level)
+    for name in _NOISY_LOGGERS:
+        logging.getLogger(name).setLevel(logging.WARNING)

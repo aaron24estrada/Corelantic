@@ -1,13 +1,16 @@
 """Application factory and wiring."""
 
+import asyncio
 import logging
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from fastapi.routing import APIRoute
 
-from app.adapters.factory import ProviderNotConfiguredError
+from app.adapters.factory import ProviderNotConfiguredError, build_data_source
 from app.api.middleware import request_context_middleware
 from app.api.router import api_router
 from app.core.config import get_settings
@@ -25,6 +28,23 @@ def _unique_operation_id(route: APIRoute) -> str:
     return f"{tag}-{route.name}"
 
 
+@asynccontextmanager
+async def _lifespan(_: FastAPI) -> AsyncIterator[None]:
+    """Open the live data source before serving, so its sign-in prompt appears once, at startup.
+
+    Left until the first request, the dashboard's concurrent queries each raced into their own
+    interactive login. A failure here is logged rather than fatal, so the process still starts —
+    the next request retries building the source.
+    """
+    settings = get_settings()
+    if settings.data_source == "azure_sql":
+        try:
+            await asyncio.to_thread(build_data_source, settings)
+        except Exception:
+            logger.warning("azure sql sign-in failed at startup; will retry on first query")
+    yield
+
+
 def create_app() -> FastAPI:
     configure_logging()
 
@@ -32,6 +52,7 @@ def create_app() -> FastAPI:
         title="Corelantic API",
         version="0.1.0",
         generate_unique_id_function=_unique_operation_id,
+        lifespan=_lifespan,
     )
     app.middleware("http")(request_context_middleware)
     app.include_router(api_router)

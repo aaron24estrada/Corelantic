@@ -12,15 +12,15 @@ interface Fact {
 }
 
 interface HeroProps {
-  /** Revenue scalar — the headline figure. */
+  /** The headline figure, as a bare scalar. */
   total?: QueryResponse;
-  /** Revenue monthly, with a chart — the area/line beside the number. */
+  /** The same metric over time, carrying the chart drawn beside the number. */
   trend?: { data?: QueryResponse };
   facts: Fact[];
   caption: string;
 }
 
-/** A currency headline reads better compact: $224.2M, not $224,190,000. */
+/** A headline reads better compact: $224.2M, not $224,190,000. */
 function compactCurrency(value: number | null): string {
   if (value === null) return "—";
   return new Intl.NumberFormat("en-US", {
@@ -46,31 +46,35 @@ export function Hero({ total, trend, facts, caption }: HeroProps) {
           className="font-display mt-2 text-[clamp(46px,6.2vw,66px)] leading-none font-bold tracking-[-0.045em]"
           data-numeric
         >
-          {revenue ? compactCurrency(revenue.value) : "—"}
+          {compactCurrency(revenue?.value ?? null)}
         </p>
         <p className="text-muted-foreground mt-4 text-[13px]">{caption}</p>
 
-        <div className="border-border/60 mt-6 flex border-t pt-4">
-          {facts.map((fact, i) => {
-            const s = fact.data ? scalar(fact.data.result) : null;
+        <dl className="border-border/60 mt-6 flex border-t pt-4">
+          {facts.map((fact, index) => {
+            const figure = fact.data ? scalar(fact.data.result) : null;
             return (
               <div
                 key={fact.label}
                 className={
-                  i < facts.length - 1 ? "border-border/60 mr-6 border-r pr-6" : ""
+                  index < facts.length - 1
+                    ? "border-border/60 mr-6 border-r pr-6"
+                    : undefined
                 }
               >
-                <p className="text-muted-foreground text-[11.5px]">{fact.label}</p>
-                <p
+                <dt className="text-muted-foreground text-[11.5px]">
+                  {fact.label}
+                </dt>
+                <dd
                   className="font-display mt-0.5 text-[19px] font-semibold tracking-tight"
                   data-numeric
                 >
-                  {s ? formatValue(s.value, s.format) : "—"}
-                </p>
+                  {figure ? formatValue(figure.value, figure.format) : "—"}
+                </dd>
               </div>
             );
           })}
-        </div>
+        </dl>
       </div>
 
       <div>

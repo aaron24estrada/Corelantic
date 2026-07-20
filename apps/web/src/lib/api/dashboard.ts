@@ -5,9 +5,8 @@ import type { components } from "@/lib/api/schema";
 
 type QueryRequest = components["schemas"]["QueryRequest"];
 
-// Every visual on the dashboard is one intent. They live here, not inline in the page, so the
-// page stays a declarative layout and the "what is asked" is reviewable in one place — the
-// vocabulary is exactly what GET /catalog advertises.
+// Every visual is one intent, declared here rather than inline, so the page stays a layout and
+// what the dashboard asks is reviewable in one place. The vocabulary is what GET /catalog offers.
 
 const query = (body: QueryRequest) => apiServer.POST("/api/v1/query", { body });
 

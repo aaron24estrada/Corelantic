@@ -3,13 +3,11 @@ import type { components } from "@/lib/api/schema";
 type MetricFormat = components["schemas"]["MetricFormat"];
 
 /**
- * A cell value as a number, whether the API sent it as one or as a string.
+ * A cell value as a number, whether the API sent one or a numeric string.
  *
- * SQL Server returns a NUMERIC (every ratio metric — voucher rate, answer rate, agent conversion —
- * and the derived currency ones) as a high-precision decimal, which serialises to a JSON *string*
- * to keep digits float64 cannot; counts arrive as JSON numbers. A `typeof === "number"` guard
- * silently drops those to null — "—" on live data, hidden in dev by the fixture's SQLite floats.
- * We only display these to a fixed precision, so parsing to a float here is lossless for the use.
+ * SQL Server serialises NUMERIC — every ratio and derived metric — as a string to keep digits
+ * float64 cannot, while counts arrive as numbers. Guarding on `typeof === "number"` therefore
+ * drops the ratios to "—" on live data, which the fixture's SQLite floats hide in dev.
  */
 export function toNumber(raw: unknown): number | null {
   if (typeof raw === "number") return Number.isFinite(raw) ? raw : null;

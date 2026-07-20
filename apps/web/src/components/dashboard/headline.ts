@@ -1,3 +1,9 @@
+/**
+ * Reading values out of a `ResultSet`.
+ *
+ * Every format comes from the column that describes the value, never re-derived from the metric
+ * name — that is what keeps a tile, a chart and a table saying the same thing.
+ */
 import type { components } from "@/lib/api/schema";
 import { toNumber } from "@/lib/format";
 
@@ -11,18 +17,18 @@ export interface Headline {
   deltaFormat: MetricFormat;
 }
 
-/**
- * Read the headline number, its change, and each one's format from a single `grain + compare`
- * result — never re-derived from the intent. `columns` names every role, so a tile, a band and a
- * chart all read one description and cannot disagree. The last bucket is the most recent value.
- */
+export interface CategoryRow {
+  label: string;
+  value: number;
+}
+
+/** The latest bucket of a `grain + compare` result: its value, its change, and both formats. */
 export function headline(result: ResultSet): Headline {
-  const columns = result.columns;
-  const metric = columns.find((c) => c.role === "metric");
-  const delta = columns.find((c) => c.role === "delta");
-  const last = result.rows.at(-1) ?? {};
-  const cell = (name: string | undefined): number | null =>
-    toNumber(name ? last[name] : null);
+  const metric = result.columns.find((column) => column.role === "metric");
+  const delta = result.columns.find((column) => column.role === "delta");
+  const latest = result.rows.at(-1) ?? {};
+  const cell = (name: string | undefined) => toNumber(name ? latest[name] : null);
+
   return {
     value: cell(metric?.name),
     format: metric?.format ?? "number",
@@ -31,42 +37,35 @@ export function headline(result: ResultSet): Headline {
   };
 }
 
-export interface CategoryRow {
-  label: string;
-  value: number;
+/** The single value of an ungrouped, ungrained result. */
+export function scalar(result: ResultSet): {
+  value: number | null;
+  format: MetricFormat;
+} {
+  const metric = result.columns.find((column) => column.role === "metric");
+  const [first] = result.rows;
+
+  return {
+    value: toNumber(metric && first ? first[metric.name] : null),
+    format: metric?.format ?? "number",
+  };
 }
 
-/**
- * A categorical breakdown as (label, value) rows for a CSS bar list or funnel: the dimension
- * column names each bar, the metric column is its length, and the metric's format renders the
- * value. A null dimension member is the source's unattributed bucket, shown as "(Blank)".
- */
+/** A breakdown as (label, value) rows. A null member is the source's own unattributed bucket. */
 export function categoryRows(result: ResultSet): {
   rows: CategoryRow[];
   format: MetricFormat;
 } {
-  const dim = result.columns.find((c) => c.role === "dimension");
-  const metric = result.columns.find((c) => c.role === "metric");
+  const dimension = result.columns.find((column) => column.role === "dimension");
+  const metric = result.columns.find((column) => column.role === "metric");
   const rows: CategoryRow[] = [];
-  for (const row of result.rows) {
-    const rawLabel = dim ? row[dim.name] : null;
-    const value = toNumber(metric ? row[metric.name] : null);
-    if (value !== null) {
-      rows.push({
-        label: rawLabel == null ? "(Blank)" : String(rawLabel),
-        value,
-      });
-    }
-  }
-  return { rows, format: metric?.format ?? "number" };
-}
 
-/** The scalar value + its format from a no-grain result (one row, one metric column). */
-export function scalar(result: ResultSet): { value: number | null; format: MetricFormat } {
-  const metric = result.columns.find((c) => c.role === "metric");
-  const first = result.rows[0] ?? {};
-  return {
-    value: toNumber(metric ? first[metric.name] : null),
-    format: metric?.format ?? "number",
-  };
+  for (const row of result.rows) {
+    const value = toNumber(metric ? row[metric.name] : null);
+    if (value === null) continue;
+    const label = dimension ? row[dimension.name] : null;
+    rows.push({ label: label == null ? "(Blank)" : String(label), value });
+  }
+
+  return { rows, format: metric?.format ?? "number" };
 }
