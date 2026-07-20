@@ -31,9 +31,7 @@ export function toEChartsOption(
   // A legend for two or more series, none for one — the title already names a lone series, and a
   // legend of one is furniture that steals plot height.
   const showLegend = spec.series.length > 1;
-  // A single-series line gets a faint area fill under it (the hero revenue, a lone trend). Two or
-  // more lines do not — overlapping fills muddy each other and a fill would imply a stack. So the
-  // fill is exactly the "one line" case, which is also the only one where it reads as emphasis.
+  // Only a lone line is filled: overlapping fills muddy each other and would imply a stack.
   const fill = spec.type === "line" && spec.series.length === 1;
 
   return {
@@ -69,8 +67,6 @@ export function toEChartsOption(
       backgroundColor: theme.surface,
       borderColor: theme.grid,
       textStyle: { color: theme.text, fontSize: 12 },
-      // The API sends decimals as strings (see toNumber); coerce so a currency/percent tooltip
-      // reads its real value rather than "—".
       valueFormatter: (value: unknown) => formatValue(toNumber(value), axisFormat),
     },
     xAxis: {
@@ -153,9 +149,8 @@ function seriesOption(
 
   const common = {
     name: series.name,
-    // `null` is a gap, never a zero: a week with no rows, or the first bucket of a comparison,
-    // which has nothing before it. ECharts breaks the line on null and would plot a 0. `toNumber`
-    // also coerces the string decimals SQL Server sends for ratio/currency series, keeping nulls.
+    // `null` is a gap, never a zero: a week with no rows, or a comparison's first bucket, which
+    // has nothing before it. `toNumber` coerces the API's string decimals and preserves nulls.
     data: series.data.map((value) => toNumber(value)),
     color,
     // The comparison is the same entity in an earlier window, so it is told apart by weight and
@@ -187,8 +182,7 @@ function seriesOption(
       opacity: comparison ? 0.55 : 1,
       type: comparison ? ("dashed" as const) : ("solid" as const),
     },
-    // A vertical gradient of the line's own colour, fading to nothing at the baseline — emphasis,
-    // not a second encoding. Only the single-line case asks for it (see `fill` above).
+    // The line's own colour fading to nothing: emphasis, not a second encoding.
     ...(fill && !comparison
       ? {
           areaStyle: {

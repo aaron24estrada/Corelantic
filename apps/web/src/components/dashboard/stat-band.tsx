@@ -12,12 +12,7 @@ interface Stat {
   data?: QueryResponse;
 }
 
-/**
- * One surface, hairline-divided columns — a stat band, not a row of boxed cards. Each column is a
- * KPI: headline value in the display face, its WoW change and a chrome-less sparkline. The change
- * stays neutral ink because a rise is not always good (spam, wait time) — the dashboard states
- * direction without editorialising which way is better.
- */
+/** One surface with hairline-divided columns, rather than a row of separately boxed tiles. */
 export function StatBand({ stats }: { stats: Stat[] }) {
   return (
     <div className="bg-card ring-foreground/10 grid grid-cols-2 overflow-hidden rounded-xl ring-1 sm:grid-cols-3 lg:grid-cols-5">
@@ -29,9 +24,11 @@ export function StatBand({ stats }: { stats: Stat[] }) {
 }
 
 function StatCell({ label, data }: Stat) {
-  const cell = data ? headline(data.result) : null;
-  const delta = cell?.delta ?? null;
-  const direction = delta === null ? "" : delta > 0 ? "▲" : delta < 0 ? "▼" : "→";
+  const stat = data ? headline(data.result) : null;
+  const delta = stat?.delta ?? null;
+  // Direction without judgement: a rise is not always good (spam calls, wait time), so the arrow
+  // states which way it moved and the colour stays neutral.
+  const arrow = delta === null ? "" : delta > 0 ? "▲" : delta < 0 ? "▼" : "→";
 
   return (
     <div className="border-border/50 flex flex-col gap-2 border-r border-b p-4">
@@ -42,7 +39,7 @@ function StatCell({ label, data }: Stat) {
         className="font-display text-[23px] leading-none font-semibold tracking-tight"
         data-numeric
       >
-        {cell ? formatValue(cell.value, cell.format) : "—"}
+        {stat ? formatValue(stat.value, stat.format) : "—"}
       </p>
       <div className="mt-auto flex items-center justify-between gap-2 pt-1">
         <span
@@ -52,7 +49,7 @@ function StatCell({ label, data }: Stat) {
           )}
           data-numeric
         >
-          {direction} {formatDelta(delta, cell?.deltaFormat ?? "number")}
+          {arrow} {formatDelta(delta, stat?.deltaFormat ?? "number")}
         </span>
         {data?.chart ? (
           <Chart

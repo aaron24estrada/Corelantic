@@ -5,10 +5,8 @@ import { usePathname } from "next/navigation";
 
 import { cn } from "@/lib/utils";
 
-// Overview is the only route that exists today. The rest are shown to convey the product's
-// scope but are inert until their routes land — "Leads & intake" / "Call center" as dedicated
-// pages, "Ask your data" with the NL panel (E4, issue #19). Rendering them as non-links keeps
-// them from 404-ing.
+// Overview is the only route that exists today. The rest show the product's shape and stay
+// inert until their routes land ("Ask your data" with the NL panel, #19), so they cannot 404.
 const ROUTES = [{ href: "/dashboard", label: "Overview" }] as const;
 const PLANNED: { label: string; soon?: boolean }[] = [
   { label: "Leads & intake" },

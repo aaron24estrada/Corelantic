@@ -30,14 +30,11 @@ def _unique_operation_id(route: APIRoute) -> str:
 
 @asynccontextmanager
 async def _lifespan(_: FastAPI) -> AsyncIterator[None]:
-    """Open the live data source before serving, not during the first request.
+    """Open the live data source before serving, so its sign-in prompt appears once, at startup.
 
-    Building it is what signs in, and the device-code prompt has to be readable: doing it here
-    prints it once, at startup, where a developer is already looking. Left lazy, the first page
-    load raced ~16 concurrent queries into the same interactive flow and demanded several logins.
-
-    A failure is deliberately not fatal — off the VPN you should still get a running API and a
-    clear per-request error, not a server that refuses to boot.
+    Left until the first request, the dashboard's concurrent queries each raced into their own
+    interactive login. A failure here is logged rather than fatal, so the process still starts —
+    the next request retries building the source.
     """
     settings = get_settings()
     if settings.data_source == "azure_sql":

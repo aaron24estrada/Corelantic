@@ -10,9 +10,8 @@ import { dashboardData } from "@/lib/api/dashboard";
 export const dynamic = "force-dynamic";
 
 export default async function DashboardPage() {
+  // Every request is already in flight; awaiting together keeps them concurrent.
   const d = dashboardData();
-  // Every request is already in flight (dashboardData fired them); awaiting together resolves
-  // them concurrently — one slow query does not hold up the page.
   const [
     revenueTotal,
     revenueTrend,
