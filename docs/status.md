@@ -1,10 +1,12 @@
 # Status & Handoff
 
-Last updated 2026-07-18. A snapshot of where the build is, what's verified, what's blocked, and what to do next — written so a fresh session can continue without prior context. Decisions and their rationale live in [`decisions.md`](./decisions.md); the real KRW schema lives in [`data-model.md`](./data-model.md); this is the "where are we / what next" view.
+Last updated 2026-07-21. A snapshot of where the build is, what's verified, what's blocked, and what to do next — written so a fresh session can continue without prior context. Decisions and their rationale live in [`decisions.md`](./decisions.md); the real KRW schema lives in [`data-model.md`](./data-model.md); this is the "where are we / what next" view.
 
 ## The headline
 
-**The dashboard is a full executive surface, live on KRW's warehouse.** As of PR #62 the app is a top-bar executive report — a revenue hero, a KPI stat band, the intake funnel, channel/geo breakdowns, and a **net-new Call Center section** over the telephony registry (Zoom calls + agent performance) that the embedded dashboard never showed. It renders end-to-end on live `gold_tspot` with real figures (~$224M revenue, 130k leads, 28.7% voucher rate, 80.7% answer rate).
+**There is a review deployment, and the dashboard is a full executive surface.** The stack runs as three containers on an EC2 host at **`98.91.116.58`** behind one nginx entry point with basic auth (#66) — on **sample data**, because the host cannot reach the warehouse yet (#69). As of PR #62 the app is a top-bar executive report — a revenue hero, a KPI stat band, the intake funnel, channel/geo breakdowns, and a **net-new Call Center section** over the telephony registry (Zoom calls + agent performance) that the embedded dashboard never showed. Run locally against `azure_sql` it renders end-to-end on live `gold_tspot` with real figures (~$224M revenue, 130k leads, 28.7% voucher rate, 80.7% answer rate).
+
+**Two gates before live data reaches that host**: TLS (#67 — it serves plaintext HTTP today, so basic-auth credentials cross in the clear) and the access grant (#69).
 
 **The backend serves 26 real metrics** over KRW's live Azure SQL (`gold_tspot`) through `POST /api/v1/query`, and the same registry runs against a seeded fixture that reproduces the source's numbers. Every metric on KRW's Executive Summary is reachable **except Spend and ROAS** — and that gap is an access grant (#37), not code.
 
@@ -29,9 +31,21 @@ It was 30 until week-over-week and year-to-date stopped being *metrics*. `leads_
   - **`ChartSpec`** — the fourth seam (D-6), authored in the API contract so it flows through OpenAPI into the generated TS client, and built by a pure function of `(chart request, resolved intent, ResultSet)`. It carries its data, so `<Chart>` is a dumb adapter and every pivot decision is under pytest.
 - **`apps/web`** (Next.js 16, React 19, Tailwind v4) — typed API client from the OpenAPI schema, BFF boundary, and the **executive dashboard (v3)**. Shell is a translucent top bar over a 1200px report column (sidebar dropped until multi-page + NL land). Charts still route through one `<Chart>` over `echarts/core` (theme in exactly one place, `lib/chart/echarts-option.ts`; single-series lines carry a faint area fill). `/dashboard` now composes: a **revenue Hero** (headline + monthly trend + facts), a hairline-divided **StatBand** (New leads · Voucher rate · Answer rate · Total calls · Agent conv., each a sparkline KPI), the **intake funnel** and ranked **bar lists** (channel/state/dispositions) as custom CSS marks reading the `ResultSet` directly, and the **Call Center** section. Presentational components share `headline`/`scalar`/`categoryRows` helpers (`components/dashboard/headline.ts`); formats always come from the column. Headline figures use self-hosted **Bricolage Grotesque** (`next/font/local`); data-grid numbers stay tabular.
 
+- **Deployment** (#66) — the stack is containerised and running on a review host. `apps/api/Dockerfile` (uv builder → slim runtime carrying `msodbcsql18` + `unixodbc`, so the live switch is config rather than a server yak-shave), `apps/web/Dockerfile` (`output: standalone`, no `node_modules` in the runtime layer), both as uid 10001. `compose.yaml` splits `edge`/`backend` networks — `backend` is deliberately **not** `internal`, because the API needs egress to Entra — caps memory from measurement (fixture seeding peaks at 276MB), and rotates logs. `deploy/bootstrap.sh` is idempotent host prep; `systemctl enable docker` plus `restart: unless-stopped` survives a reboot, so there is no unit of our own.
+
 D2–D5 and the two new dashboard tickets are done: **D7 (#61)** Call Center section and **D8 (#60)** exec visuals landed with PR #62, adding the `funnel_reach` metric (a `stages` measure grouped by `stage_name`, fan-out free). **#14** is re-scoped to the gated remainder only: the **trends combo** (needs spend #37 + index-to-base), the proper **funnel shape** (needs a `FUNNEL` chart type + ordered `stage_name` members — an interim funnel-as-bars ships today), and the **US map** (needs a `MAP` type + US-states geoJSON).
 
 `make check` green: 250 pytest + 31 vitest. `make validate` green: 5 entities, 19 measures, 14 dimensions, 26 metrics, 1 constant across two registry files.
+
+## The review host
+
+`i-02b9f53ce94ba1530` — t3.small, Amazon Linux 2023, us-east-1, Elastic IP **98.91.116.58**, repo cloned to `~/corelantic` via a **read-only deploy key** (enabling it required flipping the org's `deploy_keys_enabled_for_repositories`).
+
+Three containers, one published port: nginx `:80` → `web:3000` → `api:8080`. Verified on the host: **401 unauthenticated / 200 authenticated**, `:8080` and `:3000` refused from outside, and 600MB of 1913MB in use with swap untouched even through the Next build.
+
+Deploying is `git pull && docker compose up -d --build`. Switching to live data is an `.env` edit (`CORELANTIC_API_DATA_SOURCE=azure_sql` plus the service-principal credentials) and `docker compose up -d` — no rebuild — but **not before #67 and #69**.
+
+Two things about it that will bite if forgotten: SSH is scoped to a single IP that is currently the **KRW VPN egress**, so dropping the VPN loses SSH until the security group is updated; and port 80 is open to the world (#68).
 
 ## The API in one page
 
@@ -130,7 +144,8 @@ Every metric definition was **verified against the live tables**, not inferred. 
 ## Blocked — the real critical path
 
 - **Spend + Referrals (#37) — the only thing between us and the full dashboard.** `marketing_budget` (spend → **ROAS**, **Cost per Lead**) and `referral_leads` (cancer type, referral firm, fees) are **not in `gold_tspot`**. The `bronze_marketing`, `bronze_finance`, and `*_lawruler` schemas exist in the same database but this login cannot read them. Both originate as spreadsheets landed into the warehouse, so this is most likely an access grant, not a connector. Owner: **Imran**.
-- **Deployed auth** — service principal for headless Azure SQL access (above). Owner: Imran.
+- **#69 — the review host cannot reach the warehouse.** Two asks of **Imran**, both independent of #37: allow-list the host's Elastic IP `98.91.116.58` on the Azure SQL firewall, and provide a read-only **service principal** on `gold_tspot` (tenant/client id + secret). Deployed auth cannot be device-code — a container has no one to answer an MFA prompt. The code path and compose variables already exist; only the credentials are missing.
+- **#67 — TLS, before live data goes anywhere near that host.** It serves plaintext HTTP, so the basic-auth credentials and every byte of the dashboard cross in the clear. Blocked on a DNS name: Let's Encrypt will not issue for a bare IP.
 - **O-4 — auth.** Reuse Entra vs. Corelantic's own IdP. Owner: you/Dom. Blocks the web login.
 - **E1 — Anthropic API key.** Blocks the NL agent (the planner can be built and tested against a fake).
 - **O-3 — deploy target** (Azure vs GCP). Parked for Dom; not blocking.
@@ -142,13 +157,17 @@ Every metric definition was **verified against the live tables**, not inferred. 
 
 Unblocked, highest value first (the dashboard is now largely done — the frontier is the agent and live-readiness):
 
+0. **#68 — narrow port 80 to the reviewers' IPs.** Minutes of work, and the only thing standing in front of the host today is plaintext basic auth. Do this while the review is running.
+
 1. **E2 — `plan_intent`** (question → validated intent), buildable against the `LLMProvider` interface with a fake, run against the fixture. `GET /catalog` gives the planner its vocabulary; the 422 body's `allowed` list lets it repair a bad intent instead of retrying blind. Needs no API key. **Note the pivot in [`decisions.md`](./decisions.md): NLQ is proposed to lean on ThoughtSpot first (pending Dom), which would re-scope epic E; confirm before investing heavily in the in-house planner.**
 2. **#63 — live Azure SQL perf.** The dashboard is verified correct on `gold_tspot` but slow/erratic; pool warming + fewer/batched dashboard queries + a small cache for all-time scalars would make a live demo snappy. Fixture is the fast path meanwhile.
 3. **#14 remainder — the funnel *shape* and the US map.** The funnel already ships as bars; the tapered `FUNNEL` shape and the `MAP` are new `ChartType`s (extend `ChartSpec`, register in `components/chart.tsx`, do **not** add a bespoke component). `FUNNEL` also needs `stage_name` to declare its members in order; the map needs a US-states geoJSON asset. The trends combo still waits on spend (#37).
 4. **A1 — CI running `make check` on PRs.** CI will need `msodbcsql18` + `unixodbc-dev` to build `pyodbc`. The suite is hermetic now (#48): it ignores `.env` and every `CORELANTIC_API_*` variable, so CI can set whatever it likes.
 5. **#53 / #52 — partial-bucket family.** `accumulate` vs display window (#53) and `compare`'s `LAG` skipping empty periods (#52); fix before the D6 date-range control lands.
+6. **#72 — component tests.** A cleanup pass dropped the zero guards in `bar-list` and `funnel`, rendering `NaN%` and `Infinity%`, and **`make check` stayed green**: a review caught it, not the suite. `apps/web` has no component tests at all.
+7. **#70 — vendor Open Sans**, so image builds stop depending on Google Fonts. **#71 — build off-box (ECR + instance role)**, which removes the GitHub credential, the build cache and the build-memory constraint from the host in one move.
 
-Gated: spend/referrals registry (#37), NL agent wiring (E1), auth (O-4).
+Gated: spend/referrals registry (#37), live data on the host (#69), TLS (#67), NL agent wiring (E1), auth (O-4).
 
 ## Traps to know in the dashboard
 
