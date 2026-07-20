@@ -1,0 +1,13 @@
+# Both are produced inside the image; the host's would bloat the context and can carry
+# platform-specific binaries.
+node_modules/
+.next/
+out/
+coverage/
+
+# Secrets never enter an image layer.
+.env
+.env.*
+!.env.example
+
+README.md

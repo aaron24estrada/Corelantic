@@ -19,7 +19,11 @@ next-env.d.ts
 
 # Environment — never commit real secrets; only .env.example is tracked
 .env
-.env*.local
+.env.*
+!.env.example
+
+# Proxy credentials (password hashes), generated on the host
+deploy/htpasswd
 
 # OS / editor
 .DS_Store

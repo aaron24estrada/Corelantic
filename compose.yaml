@@ -1,0 +1,72 @@
+name: corelantic
+
+networks:
+  edge:
+    driver: bridge
+  backend:
+    driver: bridge
+    # Deliberately not `internal: true` — that would cut egress, and the API has to reach Entra
+    # and Azure SQL. Inbound isolation comes from publishing no port.
+
+services:
+  api:
+    build:
+      context: ./apps/api
+    environment:
+      CORELANTIC_API_INTERNAL_API_KEY: ${INTERNAL_API_KEY:?set INTERNAL_API_KEY in .env}
+      CORELANTIC_API_DATA_SOURCE: ${CORELANTIC_API_DATA_SOURCE:-fixture}
+      CORELANTIC_API_ALLOWED_SOURCE_SCHEMAS: ${CORELANTIC_API_ALLOWED_SOURCE_SCHEMAS:-gold_tspot}
+      CORELANTIC_API_AZURE_SQL_SERVER: ${CORELANTIC_API_AZURE_SQL_SERVER:-}
+      CORELANTIC_API_AZURE_SQL_DATABASE: ${CORELANTIC_API_AZURE_SQL_DATABASE:-}
+      # A container has no one to answer a device-code prompt.
+      CORELANTIC_API_AZURE_SQL_AUTH_MODE: ${CORELANTIC_API_AZURE_SQL_AUTH_MODE:-service_principal}
+      CORELANTIC_API_AZURE_SQL_TENANT_ID: ${CORELANTIC_API_AZURE_SQL_TENANT_ID:-}
+      CORELANTIC_API_AZURE_SQL_CLIENT_ID: ${CORELANTIC_API_AZURE_SQL_CLIENT_ID:-}
+      CORELANTIC_API_AZURE_SQL_CLIENT_SECRET: ${CORELANTIC_API_AZURE_SQL_CLIENT_SECRET:-}
+    networks:
+      - backend
+    expose:
+      - "8080"
+    # Seeding the fixture's ~400k rows measures at 276MB peak; azure_sql mode is lighter.
+    mem_limit: 512m
+    restart: unless-stopped
+    logging: &json-logs
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  web:
+    build:
+      context: ./apps/web
+    environment:
+      API_BASE_URL: http://api:8080
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY:?set INTERNAL_API_KEY in .env}
+    networks:
+      - edge
+      - backend
+    depends_on:
+      api:
+        condition: service_healthy
+    expose:
+      - "3000"
+    mem_limit: 384m
+    restart: unless-stopped
+    logging: *json-logs
+
+  # The only service that publishes a port.
+  proxy:
+    image: nginx:1.27-alpine
+    ports:
+      - "80:80"
+    volumes:
+      - ./deploy/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./deploy/htpasswd:/etc/nginx/htpasswd:ro
+    networks:
+      - edge
+    depends_on:
+      web:
+        condition: service_healthy
+    mem_limit: 48m
+    restart: unless-stopped
+    logging: *json-logs
