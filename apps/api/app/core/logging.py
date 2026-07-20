@@ -32,6 +32,16 @@ class JsonFormatter(logging.Formatter):
         return json.dumps(payload, default=str)
 
 
+# The azure-core pipeline logs every HTTP response — including a full header dump — at INFO,
+# several times per token refresh. That buries our own lines, and in particular the device-code
+# sign-in prompt a developer has to read and act on. Warnings and errors still come through.
+_NOISY_LOGGERS = (
+    "azure.core.pipeline.policies.http_logging_policy",
+    "azure.identity",
+    "msal",
+)
+
+
 def configure_logging(level: int = logging.INFO) -> None:
     handler = logging.StreamHandler()
     handler.setFormatter(JsonFormatter())
@@ -39,3 +49,5 @@ def configure_logging(level: int = logging.INFO) -> None:
     root.handlers.clear()
     root.addHandler(handler)
     root.setLevel(level)
+    for name in _NOISY_LOGGERS:
+        logging.getLogger(name).setLevel(logging.WARNING)

@@ -1,13 +1,16 @@
 """Application factory and wiring."""
 
+import asyncio
 import logging
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from fastapi.routing import APIRoute
 
-from app.adapters.factory import ProviderNotConfiguredError
+from app.adapters.factory import ProviderNotConfiguredError, build_data_source
 from app.api.middleware import request_context_middleware
 from app.api.router import api_router
 from app.core.config import get_settings
@@ -25,6 +28,26 @@ def _unique_operation_id(route: APIRoute) -> str:
     return f"{tag}-{route.name}"
 
 
+@asynccontextmanager
+async def _lifespan(_: FastAPI) -> AsyncIterator[None]:
+    """Open the live data source before serving, not during the first request.
+
+    Building it is what signs in, and the device-code prompt has to be readable: doing it here
+    prints it once, at startup, where a developer is already looking. Left lazy, the first page
+    load raced ~16 concurrent queries into the same interactive flow and demanded several logins.
+
+    A failure is deliberately not fatal — off the VPN you should still get a running API and a
+    clear per-request error, not a server that refuses to boot.
+    """
+    settings = get_settings()
+    if settings.data_source == "azure_sql":
+        try:
+            await asyncio.to_thread(build_data_source, settings)
+        except Exception:
+            logger.warning("azure sql sign-in failed at startup; will retry on first query")
+    yield
+
+
 def create_app() -> FastAPI:
     configure_logging()
 
@@ -32,6 +55,7 @@ def create_app() -> FastAPI:
         title="Corelantic API",
         version="0.1.0",
         generate_unique_id_function=_unique_operation_id,
+        lifespan=_lifespan,
     )
     app.middleware("http")(request_context_middleware)
     app.include_router(api_router)
